@@ -100,7 +100,8 @@ function stripGenerated(description) {
     const at = body.indexOf(start);
     if (at === 0 || at > 0) body = body.slice(0, at);
   }
-  return body.split('\n').filter(line => !CHAPTER_LINE.test(line)).join('\n')
+  // Also drop an AI-written "Timestamps:" heading left empty once its guessed lines are gone.
+  return body.split('\n').filter(line => !CHAPTER_LINE.test(line) && !/^\s*(time\s*stamps?|chapters)\s*:?\s*$/i.test(line)).join('\n')
     .replace(/\n{3,}/g, '\n\n').trimEnd();
 }
 
