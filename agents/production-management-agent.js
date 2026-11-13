@@ -173,7 +173,7 @@ class ProductionManagementAgent {
     
     // Add main content
     if (script.mainContent && script.mainContent.sections) {
-      script.mainContent.sections.forEach((section, index) => {
+      script.mainContent.sections.forEach(section => {
         // Section titles are scene labels, not narration: reading "Section 1: ..." aloud
         // makes every video sound templated (channel bible: never look mass-produced).
         if (section.speakTitle === true) ttsText += `${section.title}.\n`;

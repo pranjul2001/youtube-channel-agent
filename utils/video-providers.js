@@ -416,6 +416,38 @@ class SlideshowProvider extends VideoProvider {
   isAvailable() { return true; }
 }
 
+// Streams a stock clip to disk (slow connections: no whole-file buffer in memory), writes to a
+// .part file and renames on success so a half-download is never mistaken for a clip.
+// STOCK_DOWNLOAD_TIMEOUT_MS bounds each attempt (default 10 minutes).
+async function downloadToFile(http, url, outputPath) {
+  const timeout = Number(process.env.STOCK_DOWNLOAD_TIMEOUT_MS) || 10 * 60 * 1000;
+  await fs.mkdir(path.dirname(outputPath), { recursive: true });
+  const partPath = `${outputPath}.part`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  try {
+    const response = await http.get(url, { responseType: 'stream', timeout, signal: controller.signal });
+    if (response.data && typeof response.data.pipe === 'function') {
+      await new Promise((resolve, reject) => {
+        const out = require('fs').createWriteStream(partPath);
+        response.data.on('error', reject);
+        out.on('error', reject);
+        out.on('finish', resolve);
+        response.data.pipe(out);
+      });
+    } else {
+      await fs.writeFile(partPath, Buffer.from(response.data));
+    }
+    await fs.rename(partPath, outputPath);
+    return outputPath;
+  } catch (error) {
+    await fs.unlink(partPath).catch(() => {});
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // Free stock footage from Pexels (https://www.pexels.com/api/). Unlike the generative
 // providers this one searches real, licensed footage, costs nothing, and returns
 // attribution so photographers can be credited in the video description.
@@ -468,10 +500,7 @@ class PexelsProvider extends VideoProvider {
   }
 
   async download(candidate, outputPath) {
-    const response = await this.http.get(candidate.fileUrl, { responseType: 'arraybuffer', timeout: 180000 });
-    await fs.mkdir(path.dirname(outputPath), { recursive: true });
-    await fs.writeFile(outputPath, Buffer.from(response.data));
-    return outputPath;
+    return downloadToFile(this.http, candidate.fileUrl, outputPath);
   }
 
   // Stock footage is selected per scene by MediaGenerationService.generateStockClips;
@@ -545,10 +574,7 @@ class PixabayProvider extends VideoProvider {
   }
 
   async download(candidate, outputPath) {
-    const response = await this.http.get(candidate.fileUrl, { responseType: 'arraybuffer', timeout: 180000 });
-    await fs.mkdir(path.dirname(outputPath), { recursive: true });
-    await fs.writeFile(outputPath, Buffer.from(response.data));
-    return outputPath;
+    return downloadToFile(this.http, candidate.fileUrl, outputPath);
   }
 
   async createTask() {

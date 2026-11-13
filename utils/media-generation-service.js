@@ -102,7 +102,7 @@ ${scenes.map((scene, index) => `${index + 1}. ${scene.label}: ${scene.text.slice
 
   // Fill the whole narration with real stock clips: several distinct clips per scene,
   // scene time proportional to its narration, no clip reused across the video when avoidable.
-  async generateStockClips({ provider, script, outputDir, productionId, targetDuration, settings }) {
+  async generateStockClips({ provider, script, outputDir, targetDuration, settings }) {
     const scenes = this.sceneTexts(script);
     if (!scenes.length) return { clips: [], credits: [] };
     const total = Math.max(settings.stockClipSeconds, Number(targetDuration) || 0);
@@ -128,19 +128,39 @@ ${scenes.map((scene, index) => `${index + 1}. ${scene.label}: ${scene.text.slice
         this.logger.warn(`No stock footage found for scene "${scene.label}"; it will fall back to stills`);
         continue;
       }
+      // Download what the scene needs; a clip that fails twice is skipped for the next match,
+      // so one slow or broken file never discards the whole video's footage.
+      const ready = [];
+      for (const candidate of candidates) {
+        if (ready.length >= needed) break;
+        // Shared cache keyed by source clip id: retries and later videos reuse finished downloads.
+        const outputPath = path.join(outputDir, 'stock-cache', `${provider.id}_${candidate.id}.mp4`);
+        let ok = false;
+        for (let attempt = 1; attempt <= 2 && !ok; attempt++) {
+          try {
+            try {
+              await fs.access(outputPath);
+            } catch (_missing) {
+              await provider.download(candidate, outputPath);
+            }
+            ok = await this.isValidVideo(outputPath);
+            if (!ok) await fs.unlink(outputPath).catch(() => {});
+          } catch (error) {
+            this.logger.warn(`${provider.sourceName} clip ${candidate.id} download attempt ${attempt} failed: ${error.code || error.message}`);
+          }
+        }
+        if (ok) {
+          used.add(candidate.id);
+          ready.push({ candidate, outputPath });
+          this.logger.info(`${provider.sourceName} clip ${clips.length + ready.length} ready (scene "${scene.label}")`);
+        }
+      }
+      if (!ready.length) {
+        this.logger.warn(`No downloadable footage for scene "${scene.label}"; it will fall back to stills`);
+        continue;
+      }
       for (let n = 0; n < needed; n++) {
-        const candidate = candidates[n % candidates.length];
-        used.add(candidate.id);
-        const outputPath = path.join(outputDir, `${productionId}_${provider.id}_${candidate.id}.mp4`);
-        try {
-          await fs.access(outputPath);
-        } catch (_missing) {
-          await provider.download(candidate, outputPath);
-        }
-        if (!await this.isValidVideo(outputPath)) {
-          this.logger.warn(`Skipping invalid ${provider.sourceName} clip ${candidate.id}`);
-          continue;
-        }
+        const { candidate, outputPath } = ready[n % ready.length];
         clips.push({
           index: index++,
           label: scene.label,
