@@ -58,62 +58,74 @@ function parseScript(md) {
   return { title, series, hook, closing, sections, sources, claims };
 }
 
-const file = process.argv[2];
-if (!file) {
-  console.error('Usage: node scripts/import-approved-script.js <script.md> [--publish-time ISO] [--keywords "a, b"]');
-  process.exit(1);
-}
-const parsed = parseScript(fs.readFileSync(file, 'utf8'));
-const { title, hook, closing, sections, sources, claims } = parsed;
-const cta = closing.paragraphs[closing.paragraphs.length - 1];
-const finalThought = closing.paragraphs.slice(0, -1).join(' ');
-const fullText = [hook.paragraphs.join('\n\n'), ...sections.flatMap(s => s.paragraphs), finalThought, cta].join('\n\n');
-const words = fullText.split(/\s+/).length;
-const seconds = Math.round((words / 150) * 60);
-const keywords = (arg('keywords') || '').split(',').map(k => k.trim()).filter(Boolean);
-const script = {
-  title,
-  hook: { type: 'imported', text: hook.paragraphs.join('\n\n'), duration: '0:00-0:30' },
-  introduction: null,
-  mainContent: {
-    sections: sections.map(s => ({ type: 'imported', title: s.title, content: s.paragraphs, duration: Math.round((s.paragraphs.join(' ').split(/\s+/).length / 150) * 60) })),
-    totalDuration: seconds
-  },
-  conclusion: { recap: [], finalThought },
-  callToAction: { type: 'call_to_action', subscribe: cta, like: '', comment: '', nextVideo: '', duration: '10 seconds' },
-  duration: `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`,
-  tone: 'calm, factual, respectful',
-  pacing: 'slow, short sentences',
-  keywords,
-  claims,
-  fullScript: fullText,
-  metadata: { generatedAt: new Date().toISOString(), version: '1.0', generationSource: 'imported-approved-script', sourceFile: path.basename(file) }
-};
-const strategy = {
-  topic: title,
-  contentType: 'Story',
-  requestedStyle: 'story',
-  requestedLengthKey: 'medium',
-  requestedLength: `${Math.round(seconds / 60)} minutes`,
-  angle: 'Separate what is known, what experts believe, and what is speculation.',
-  contentPillar: parsed.series,
-  targetAudience: 'Curious adults worldwide; English narration, clear and simple pacing, no prior knowledge assumed.',
-  keywords,
-  researchSources: sources.map(({ key, ...rest }) => rest),
-  bestPublishTime: arg('publish-time', null),
-  estimatedViews: 0,
-  competitorAnalysis: []
-};
-script.metadata.strategy = strategy;
-
-(async () => {
-  const db = new Database();
-  await db.initialize();
-  const job = await db.createGenerationJob({ topic: strategy.topic, style: 'story', length: 'medium', source: 'manual', strategyContext: {} });
+// Builds the strategy and script artifacts and saves them as a resumable job.
+async function importScript(markdown, options = {}, db = null) {
+  const parsed = parseScript(markdown);
+  const { title, hook, closing, sections, sources, claims } = parsed;
+  const cta = closing.paragraphs[closing.paragraphs.length - 1];
+  const finalThought = closing.paragraphs.slice(0, -1).join(' ');
+  const fullText = [hook.paragraphs.join('\n\n'), ...sections.flatMap(s => s.paragraphs), finalThought, cta].join('\n\n');
+  const words = fullText.split(/\s+/).length;
+  const seconds = Math.round((words / 150) * 60);
+  const keywords = options.keywords || [];
+  const script = {
+    title,
+    hook: { type: 'imported', text: hook.paragraphs.join('\n\n'), duration: '0:00-0:30' },
+    introduction: null,
+    mainContent: {
+      sections: sections.map(s => ({ type: 'imported', title: s.title, content: s.paragraphs, duration: Math.round((s.paragraphs.join(' ').split(/\s+/).length / 150) * 60) })),
+      totalDuration: seconds
+    },
+    conclusion: { recap: [], finalThought },
+    callToAction: { type: 'call_to_action', subscribe: cta, like: '', comment: '', nextVideo: '', duration: '10 seconds' },
+    duration: `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`,
+    tone: 'calm, factual, respectful',
+    pacing: 'slow, short sentences',
+    keywords,
+    claims,
+    fullScript: fullText,
+    metadata: { generatedAt: new Date().toISOString(), version: '1.0', generationSource: 'imported-approved-script', sourceFile: options.sourceFile || null }
+  };
+  const strategy = {
+    topic: title,
+    contentType: 'Story',
+    requestedStyle: 'story',
+    requestedLengthKey: 'medium',
+    requestedLength: `${Math.max(1, Math.round(seconds / 60))} minutes`,
+    angle: 'Separate what is known, what experts believe, and what is speculation.',
+    contentPillar: parsed.series,
+    targetAudience: 'Curious adults worldwide; English narration, clear and simple pacing, no prior knowledge assumed.',
+    keywords,
+    researchSources: sources.map(({ key, ...rest }) => rest),
+    bestPublishTime: options.publishTime || null,
+    estimatedViews: 0,
+    competitorAnalysis: []
+  };
+  script.metadata.strategy = strategy;
+  const database = db || new Database();
+  if (!db) await database.initialize();
+  const job = await database.createGenerationJob({ topic: strategy.topic, style: 'story', length: 'medium', source: 'manual', strategyContext: {} });
   const now = new Date().toISOString();
-  await db.saveGenerationCheckpoint(job.id, 'strategy', { status: 'completed', artifact: strategy, startedAt: now, completedAt: now, error: null });
-  await db.saveGenerationCheckpoint(job.id, 'script', { status: 'completed', artifact: script, startedAt: now, completedAt: now, error: null });
-  await db.updateGenerationJob(job.id, { status: 'interrupted', error: 'Imported approved script; resume to produce' });
-  console.log(JSON.stringify({ jobId: job.id, title, sections: sections.map(s => s.title), words, claims: claims.length, sources: sources.length }));
-  process.exit(0);
-})().catch(error => { console.error('FAILED', error.message); process.exit(1); });
+  await database.saveGenerationCheckpoint(job.id, 'strategy', { status: 'completed', artifact: strategy, startedAt: now, completedAt: now, error: null });
+  await database.saveGenerationCheckpoint(job.id, 'script', { status: 'completed', artifact: script, startedAt: now, completedAt: now, error: null });
+  await database.updateGenerationJob(job.id, { status: 'interrupted', error: 'Imported approved script; resume to produce' });
+  return { jobId: job.id, title, sections: sections.map(s => s.title), words, claims: claims.length, sources: sources.length };
+}
+
+module.exports = { parseScript, importScript };
+
+if (require.main === module) {
+  const file = process.argv[2];
+  if (!file) {
+    console.error('Usage: node scripts/import-approved-script.js <script.md> [--publish-time ISO] [--keywords "a, b"]');
+    process.exit(1);
+  }
+  importScript(fs.readFileSync(file, 'utf8'), {
+    sourceFile: path.basename(file),
+    publishTime: arg('publish-time', null),
+    keywords: (arg('keywords') || '').split(',').map(k => k.trim()).filter(Boolean)
+  }).then(result => {
+    console.log(JSON.stringify(result));
+    process.exit(0);
+  }).catch(error => { console.error('FAILED', error.message); process.exit(1); });
+}

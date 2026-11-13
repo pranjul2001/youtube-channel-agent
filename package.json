@@ -20,7 +20,8 @@
     "agent:analytics": "node agents/analytics-optimization-agent.js",
     "credentials:setup": "node utils/credential-manager.js setup",
     "lint": "eslint .",
-    "test:offline": "GEMINI_API_KEY= API_KEY= OPENAI_API_KEY= node test.js"
+    "test:offline": "GEMINI_API_KEY= API_KEY= OPENAI_API_KEY= node test.js",
+    "e2e": "node scripts/e2e-check.js"
   },
   "dependencies": {
     "@google-cloud/local-auth": "^3.0.0",

@@ -92,6 +92,8 @@ function isGrounded(text, source) {
 // Stock and archive searches must not return people (channel bible: nothing that could read as
 // a real victim or a recreation of a real person).
 const PEOPLE = /\b(portraits?|persons?|people|man|men|woman|women|faces?|child(ren)?|kids?|boys?|girls?|crowds?|famil(y|ies)|keepers?|sailors?|fisherm[ae]n|workers?|soldiers?|wearing|shirts?|sleeves?|selfies?|hands?|astronauts?|scientists?|portrait)\b/i;
+// Stock tags that never fit this channel's documentaries (people, food, tropical holidays).
+const OFF_TOPIC_TAGS = /\b(people|person|man|men|woman|women|girl|boy|child|children|kid|baby|family|couple|face|portrait|selfie|hands?|food|cooking|kitchen|chef|restaurant|palm|palms|tropical|tropic|resort|holiday|vacation|bikini|party|wedding|business|office|smartphone|laptop)\b/i;
 const GENERIC_CAPS = new Set(['The', 'A', 'An', 'Old', 'Vintage', 'Historic', 'Historical', 'Photo', 'Image']);
 
 // Proper-noun words an archive image's title must contain, so a search for "Hesperus ship"
@@ -374,10 +376,10 @@ ${beats.map(beat => `${beat.index + 1}. [${beat.label}] ${beat.text.slice(0, 320
       }
       // A card is read in a few seconds; longer beats continue on footage.
       if (plan[i].type === 'card' && beat.end - start > 7) {
-        segments.push({ kind: 'card', start, end: start + 5, label: beat.label, beat: i, plan: plan[i] });
-        segments.push({ kind: 'stock', start: start + 5, end: beat.end, label: beat.label, beat: i, plan: { ...plan[i], type: 'stock', query: plan[i].fallback || '' } });
+        segments.push({ kind: 'card', start, end: start + 5, label: beat.label, beat: i, text: beat.text, plan: plan[i] });
+        segments.push({ kind: 'stock', start: start + 5, end: beat.end, label: beat.label, beat: i, text: beat.text, plan: { ...plan[i], type: 'stock', query: plan[i].fallback || '' } });
       } else {
-        segments.push({ kind: plan[i].type, start, end: beat.end, label: beat.label, beat: i, plan: plan[i] });
+        segments.push({ kind: plan[i].type, start, end: beat.end, label: beat.label, beat: i, text: beat.text, plan: plan[i] });
       }
     }
 
@@ -484,7 +486,7 @@ ${beats.map(beat => `${beat.index + 1}. [${beat.label}] ${beat.text.slice(0, 320
       }
     }
     // Stock footage (also the fallback for every other type).
-    const clip = await this.stockClip(plan.query || plan.fallback, ctx, plan.fallback);
+    const clip = await this.stockClip(plan.query || plan.fallback, ctx, plan.fallback, segment.text);
     if (clip) {
       const overlay = plan.label ? path.join(ctx.workDir, `label_${ctx.n}.png`) : null;
       if (overlay) await sharp(Buffer.from(labelSvg(plan.label))).png().toFile(overlay);
@@ -499,42 +501,106 @@ ${beats.map(beat => `${beat.index + 1}. [${beat.label}] ${beat.text.slice(0, 320
     return { kind: 'card', prompt: segment.label };
   }
 
-  async stockClip(query, ctx, fallback) {
+  async stockClip(query, ctx, fallback, beatText = '') {
     const stock = ctx.stock;
     if (!stock) return null;
     const { provider, blocked, used, service } = stock;
+    let lastResort = null;
     for (const q of [query, fallback, 'dramatic sky clouds'].filter(Boolean)) {
       let found = [];
-      try {
-        found = await provider.search(q, { perPage: 15, targetWidth: stock.targetWidth });
-      } catch (error) {
-        this.logger.warn(`Stock search "${q}" failed: ${error.message}`);
+      // Slow or flaky connections: retry a failed search twice before moving on.
+      let searchError = null;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          found = await provider.search(q, { perPage: 15, targetWidth: stock.targetWidth });
+          searchError = null;
+          break;
+        } catch (error) {
+          searchError = error;
+          await new Promise(resolve => setTimeout(resolve, 3000 * attempt));
+        }
+      }
+      if (searchError) {
+        this.logger.warn(`Stock search "${q}" failed after 3 tries: ${searchError.message}`);
         continue;
       }
-      const fresh = found.filter(item => !blocked.has(String(item.id)) && !used.has(item.id));
-      const candidates = fresh.length ? fresh : found.filter(item => !blocked.has(String(item.id)));
-      for (const candidate of candidates.slice(0, 4)) {
-        const outputPath = path.join(path.dirname(this.cacheDir), 'videos', 'stock-cache', `${provider.id}_${candidate.id}.mp4`);
-        await fs.mkdir(path.dirname(outputPath), { recursive: true });
-        let ok = false;
-        for (let attempt = 1; attempt <= 2 && !ok; attempt++) {
-          try {
-            try { await fs.access(outputPath); } catch (_missing) { await provider.download(candidate, outputPath); }
-            ok = await service.isValidVideo(outputPath);
-            if (!ok) await fs.unlink(outputPath).catch(() => {});
-          } catch (error) {
-            this.logger.warn(`${provider.sourceName} clip ${candidate.id} download attempt ${attempt} failed: ${error.code || error.message}`);
-          }
-        }
-        if (!ok) continue;
-        used.add(candidate.id);
-        return {
-          path: outputPath, query: q, taskId: `${provider.id}:${candidate.id}`,
-          credit: { source: provider.sourceName, videoId: candidate.id, videoUrl: candidate.pageUrl, photographer: candidate.photographer, photographerUrl: candidate.photographerUrl }
-        };
+      // Cheap filter first: Pixabay's own flags and tags (people, food, tropical, AI-made).
+      const acceptable = found.filter(item => !blocked.has(String(item.id)) && !item.isAiGenerated && !item.isLowQuality &&
+        !OFF_TOPIC_TAGS.test(item.tags || ''));
+      const fresh = acceptable.filter(item => !used.has(item.id));
+      let candidates = (fresh.length ? fresh : acceptable).slice(0, 4);
+      if (!candidates.length) continue;
+      lastResort = lastResort || { q, candidates };
+      // Then the picture check: the AI looks at each preview frame against this beat.
+      const pick = await this.visionPick(candidates, beatText, ctx.settings?.mood);
+      if (pick === -1) {
+        this.logger.info(`No clip for "${q}" fits this beat; trying a broader search`);
+        continue;
       }
+      if (pick > 0) candidates = [candidates[pick], ...candidates.filter((_, i) => i !== pick)];
+      const clip = await this.downloadFirst(candidates, provider, service, used, q);
+      if (clip) return clip;
+    }
+    // Every search failed the picture check: use the best tag-filtered match rather than stop.
+    return lastResort ? this.downloadFirst(lastResort.candidates, provider, service, used, lastResort.q) : null;
+  }
+
+  async downloadFirst(candidates, provider, service, used, q) {
+    for (const candidate of candidates) {
+      const outputPath = path.join(path.dirname(this.cacheDir), 'videos', 'stock-cache', `${provider.id}_${candidate.id}.mp4`);
+      await fs.mkdir(path.dirname(outputPath), { recursive: true });
+      let ok = false;
+      for (let attempt = 1; attempt <= 2 && !ok; attempt++) {
+        try {
+          try { await fs.access(outputPath); } catch (_missing) { await provider.download(candidate, outputPath); }
+          ok = await service.isValidVideo(outputPath);
+          if (!ok) await fs.unlink(outputPath).catch(() => {});
+        } catch (error) {
+          this.logger.warn(`${provider.sourceName} clip ${candidate.id} download attempt ${attempt} failed: ${error.code || error.message}`);
+        }
+      }
+      if (!ok) continue;
+      used.add(candidate.id);
+      return {
+        path: outputPath, query: q, taskId: `${provider.id}:${candidate.id}`,
+        credit: { source: provider.sourceName, videoId: candidate.id, videoUrl: candidate.pageUrl, photographer: candidate.photographer, photographerUrl: candidate.photographerUrl }
+      };
     }
     return null;
+  }
+
+  // Returns the index of the best-fitting preview, -1 when none fit, or 0 when the check is
+  // unavailable (no AI, no previews, quota). Free Gemini model; calls are spaced out.
+  async visionPick(candidates, beatText, mood) {
+    const gemini = this.aiText?.gemini;
+    const withPreview = candidates.filter(c => c.previewUrl);
+    if (!gemini || !beatText || withPreview.length !== candidates.length) return 0;
+    try {
+      const images = [];
+      for (const candidate of candidates) {
+        const response = await this.http.get(candidate.previewUrl, { responseType: 'arraybuffer', timeout: 30000, headers: { 'User-Agent': USER_AGENT } });
+        const small = await sharp(Buffer.from(response.data)).resize(384, 216, { fit: 'cover' }).jpeg({ quality: 70 }).toBuffer();
+        images.push({ inlineData: { mimeType: 'image/jpeg', data: small.toString('base64') } });
+      }
+      const wait = 4200 - (Date.now() - (this.lastVisionAt || 0));
+      if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait));
+      this.lastVisionAt = Date.now();
+      const prompt = `You pick B-roll for a calm, factual documentary. Narration at this moment: "${beatText.slice(0, 400)}"${mood ? `\nVisual mood of the whole video: ${mood}` : ''}
+Images 1 to ${images.length} are preview frames of stock clips. Choose the one that best fits the narration and mood.
+Reject an image if it shows people, faces or hands, readable text or logos, food or kitchens, or a place, season or era that contradicts the narration (for example palm trees or tropical sun for a cold northern sea, or a modern city for 1900).
+Return ONLY JSON {"best": <number 1-${images.length}, or 0 if none fit>}.`;
+      const response = await this.aiText.gemini.models.generateContent({
+        model: this.aiText.model,
+        contents: [{ role: 'user', parts: [{ text: prompt }, ...images] }]
+      });
+      const text = response.text || response.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
+      const best = Number((text.match(/"best"\s*:\s*(\d+)/) || [])[1]);
+      if (!Number.isFinite(best)) return 0;
+      return best === 0 ? -1 : Math.min(candidates.length, best) - 1;
+    } catch (error) {
+      this.logger.warn(`Clip picture check unavailable (${String(error.message).slice(0, 120)}); using the top match`);
+      return 0;
+    }
   }
 
   // ----- free image archives ---------------------------------------------------------------

@@ -83,7 +83,8 @@ class SystemTest {
       { name: 'Subtitle Timing From Narration Pauses', test: () => this.testNarrationTiming() },
       { name: 'Timed Narration Pipeline', test: () => this.testTimedNarrationPipeline() },
       { name: 'Documentary Visual Plan Stays Grounded', test: () => this.testDocumentaryPlanning() },
-      { name: 'Documentary Render With Burned Subtitles', test: () => this.testDocumentaryRender() }
+      { name: 'Documentary Render With Burned Subtitles', test: () => this.testDocumentaryRender() },
+      { name: 'Clip Vetting and Honest Thumbnails', test: () => this.testClipVettingAndThumbnails() }
     ];
 
     let passed = 0;
@@ -4158,6 +4159,56 @@ class SystemTest {
     } finally {
       await fsp.rm(dir, { recursive: true, force: true });
     }
+  }
+
+  async testClipVettingAndThumbnails() {
+    const { DocumentaryRenderer } = require('./utils/documentary-renderer');
+    const { thumbnailText } = require('./utils/documentary-thumbnail');
+    const sharp = require('sharp');
+    const jpeg = await sharp({ create: { width: 64, height: 36, channels: 3, background: '#335' } }).jpeg().toBuffer();
+    let asked = null;
+    const renderer = new DocumentaryRenderer({
+      logger: { info() {}, warn() {}, error() {} },
+      http: { get: async () => ({ data: jpeg }) },
+      aiText: { model: 'stub', gemini: { models: { generateContent: async request => { asked = request; return { text: '{"best": 2}' }; } } } }
+    });
+    renderer.lastVisionAt = Date.now() - 10000;
+    const candidates = [1, 2, 3].map(id => ({ id, previewUrl: `https://example.org/${id}.jpg` }));
+    const pick = await renderer.visionPick(candidates, 'The relief ship reached the island.', 'cold sea');
+    if (pick !== 1 || asked.contents[0].parts.length !== 4) throw new Error('Picture check must send every preview and return the chosen index');
+    renderer.aiText.gemini.models.generateContent = async () => ({ text: '{"best": 0}' });
+    renderer.lastVisionAt = 0;
+    if (await renderer.visionPick(candidates, 'text', '') !== -1) throw new Error('"None fit" must reject all candidates');
+
+    // Tag filter: people, food and tropical clips are never downloaded.
+    const downloads = [];
+    const provider = {
+      id: 'stub', sourceName: 'Stub',
+      search: async () => [
+        { id: 1, tags: 'beach, palm, tropical', previewUrl: null },
+        { id: 2, tags: 'people, crowd', previewUrl: null },
+        { id: 3, tags: 'sea, storm, winter', previewUrl: null, pageUrl: 'p3', photographer: 'A' }
+      ],
+      download: async (candidate, out) => { downloads.push(candidate.id); await require('fs').promises.writeFile(out, 'x'); }
+    };
+    const os = require('os');
+    const cacheDir = await require('fs').promises.mkdtemp(path.join(os.tmpdir(), 'yaa-vet-'));
+    const plain = new DocumentaryRenderer({ logger: { info() {}, warn() {}, error() {} }, cacheDir: path.join(cacheDir, 'media-cache') });
+    const clip = await plain.stockClip('sea', { stock: { provider, blocked: new Set(), used: new Set(), targetWidth: 1920, service: { isValidVideo: async () => true } } }, null, 'The sea was rough.');
+    await require('fs').promises.rm(cacheDir, { recursive: true, force: true });
+    if (!clip || clip.taskId !== 'stub:3' || downloads.join() !== '3') throw new Error(`Only the on-topic clip may be used, got ${clip?.taskId} after ${downloads}`);
+
+    // Thumbnail text: hype words or words not in the script fall back to the real title.
+    const script = { title: 'The Vanishing at Flannan Isles: Fact and Folklore', hook: { text: 'Three keepers vanished in 1900.' } };
+    const hype = await thumbnailText(script, { isAvailable: () => true, generateText: async () => '{"line1":"MUST WATCH","line2":"GHOSTS","sub":""}' });
+    if (/must|ghost/i.test(`${hype.line1} ${hype.line2}`) || !/Flannan/i.test(`${hype.line1} ${hype.line2}`)) throw new Error('Hype or invented thumbnail text must be rejected');
+    const honest = await thumbnailText(script, { isAvailable: () => true, generateText: async () => '{"line1":"Keepers","line2":"Vanished","sub":"Flannan Isles, 1900"}' });
+    if (honest.line2 !== 'Vanished' || honest.sub !== 'Flannan Isles, 1900') throw new Error('Grounded thumbnail text must be kept');
+
+    // Publishing never uploads a stand-in thumbnail.
+    const { PublishingSchedulingAgent } = require('./agents/publishing-scheduling-agent');
+    const source = require('fs').readFileSync(require.resolve('./agents/publishing-scheduling-agent'), 'utf8');
+    if (!PublishingSchedulingAgent || !/thumb\.placeholder === true/.test(source)) throw new Error('Placeholder thumbnails must be skipped at upload');
   }
 
   async testLoopedVideoIsBounded() {

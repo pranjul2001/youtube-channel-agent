@@ -279,11 +279,14 @@ class ProductionManagementAgent {
       const originalBuffer = await fs.readFile(thumbnail.path);
       await fs.mkdir(path.dirname(productionThumbnailPath), { recursive: true });
       await fs.writeFile(productionThumbnailPath, originalBuffer);
+      // The designer's gradient-and-text template is a stand-in, not a publishable thumbnail.
       return {
         path: productionThumbnailPath,
         originalPath: thumbnail.path,
         dimensions: thumbnail.dimensions || { width: 1792, height: 1024 },
-        fileSize: thumbnail.fileSize || 0
+        fileSize: thumbnail.fileSize || 0,
+        generatedWith: 'template',
+        placeholder: true
       };
     }
 
@@ -645,6 +648,23 @@ class ProductionManagementAgent {
         videoResult.realFootage !== true &&
         !['slideshow', 'simulation'].includes(videoResult.actualProvider)
       );
+
+      // Free, honest thumbnail from a real frame of this video (replaces the template stand-in).
+      if (videoResult.actualProvider === 'documentary') {
+        try {
+          const { createDocumentaryThumbnail } = require('../utils/documentary-thumbnail');
+          productionData.assets.thumbnail = await createDocumentaryThumbnail({
+            scenes: videoResult.scenes || [],
+            script: productionData.script,
+            outputPath: path.join(__dirname, '..', 'data', 'assets', `thumbnail_${productionData.id}.jpg`),
+            aiText: this.aiVideoGenerator.mediaGeneration?.aiText,
+            logger: this.logger
+          });
+          this.logger.info(`Thumbnail made from a video frame: "${productionData.assets.thumbnail.text.line1} ${productionData.assets.thumbnail.text.line2}"`);
+        } catch (error) {
+          this.logger.warn(`Frame thumbnail failed (${error.message}); no custom thumbnail will be uploaded`);
+        }
+      }
 
       // Channel bible: credit stock videographers and disclose AI-assisted narration.
       const narrationProvider = productionData.assets.audio?.provider;

@@ -162,8 +162,29 @@ class ProductionReadinessService {
 
   async probeNarration(tempDir) {
     if (this.probes.narration) return this.probes.narration({ tempDir });
-    const generator = new AIVideoGenerator(this.credentialManager.credentials || {});
+    const generator = new AIVideoGenerator(this.credentialManager.credentials || {}, { db: this.db });
     const outputPath = path.join(tempDir, 'readiness-narration.mp3');
+    const preferred = String(process.env.TTS_PROVIDER || 'auto').trim().toLowerCase();
+    if (generator.gemini && preferred === 'gemini') {
+      // Probe the channel's own voice models in order (each has its own free daily limit).
+      const settings = await generator.narrationSettings();
+      const failures = [];
+      for (const model of settings.models) {
+        try {
+          await generator.withTTSRetry(() => generator.generateGeminiTTS('Production readiness audio check.', outputPath, { model, voice: settings.voice }), 2);
+          const stats = await fs.stat(outputPath);
+          if (stats.size < 100) throw new Error('empty audio');
+          const note = failures.length ? ` (${failures.length} earlier voice model(s) are out of today's free limit)` : '';
+          return { message: `Voice ${settings.voice} works on ${model}${note}.`, details: { model, voice: settings.voice, unavailable: failures } };
+        } catch (error) {
+          failures.push({ model, reason: /per day|quota/i.test(error.message) ? 'daily free limit used up' : generator.shortError(error) });
+        }
+      }
+      const allQuota = failures.every(f => f.reason === 'daily free limit used up');
+      throw new Error(allQuota
+        ? "Today's free voice limit is used up on every voice model. It resets daily at midnight Pacific time (about 1:30 pm in India)."
+        : `No voice model worked: ${failures.map(f => `${f.model}: ${f.reason}`).join('; ')}`);
+    }
     const resultPath = await generator.generateTTSAudio('Production readiness audio check.', outputPath);
     if (path.extname(resultPath).toLowerCase() === '.info') throw new Error('No live narration provider is available; the pipeline returned a simulation');
     const stats = await fs.stat(resultPath);

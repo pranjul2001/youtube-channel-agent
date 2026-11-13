@@ -408,7 +408,8 @@ class AIVideoGenerator {
       } catch (error) {
         const text = String(error?.message || error);
         const daily = /per day|PerDay/i.test(text);
-        const temporary = /\b(429|500|503)\b|RESOURCE_EXHAUSTED|UNAVAILABLE|overloaded|high demand|ECONNRESET|ETIMEDOUT|socket hang up/i.test(text);
+        // An empty audio reply is a known transient Gemini TTS hiccup: retry the same model.
+        const temporary = /\b(429|500|503)\b|RESOURCE_EXHAUSTED|UNAVAILABLE|overloaded|high demand|ECONNRESET|ETIMEDOUT|socket hang up|returned no audio data|fetch failed/i.test(text);
         if (daily || !temporary || attempt >= attempts) throw error;
         const hinted = Number((text.match(/retry in ([\d.]+)s/i) || [])[1]);
         const wait = Math.min(75, Number.isFinite(hinted) && hinted > 0 ? hinted + 1 : 8 * attempt);

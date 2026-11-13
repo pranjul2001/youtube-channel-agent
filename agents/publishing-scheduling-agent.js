@@ -245,8 +245,12 @@ class PublishingSchedulingAgent {
     await this.db.updateScheduleEntry(scheduleEntry);
     
     // Upload thumbnail
-    if (metadata.thumbnail && metadata.thumbnail.path) {
-      await this.uploadThumbnail(videoId, metadata.thumbnail.path);
+    // Never upload a stand-in (template, placeholder or simulation): YouTube's default frame is better.
+    const thumb = metadata.thumbnail;
+    const standIn = !thumb?.path || thumb.placeholder === true || thumb.simulated === true || /\.(info|placeholder)$/i.test(thumb.path);
+    if (standIn && thumb?.path) this.logger.warn('Skipping thumbnail upload: only a placeholder thumbnail exists');
+    if (!standIn) {
+      await this.uploadThumbnail(videoId, thumb.path);
     }
     
     // Upload captions

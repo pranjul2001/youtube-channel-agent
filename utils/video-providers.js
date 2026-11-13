@@ -495,7 +495,11 @@ class PexelsProvider extends VideoProvider {
       photographerUrl: video.user?.url || null,
       fileUrl: best.link,
       width: Number(best.width) || null,
-      height: Number(best.height) || null
+      height: Number(best.height) || null,
+      previewUrl: video.image || null,
+      tags: '',
+      isAiGenerated: false,
+      isLowQuality: false
     };
   }
 
@@ -569,7 +573,12 @@ class PixabayProvider extends VideoProvider {
       photographerUrl: hit.user && hit.user_id ? `https://pixabay.com/users/${hit.user}-${hit.user_id}/` : null,
       fileUrl: best.url,
       width: Number(best.width) || null,
-      height: Number(best.height) || null
+      height: Number(best.height) || null,
+      // Used to vet clips before download: preview frame, tags and Pixabay's own flags.
+      previewUrl: best.thumbnail || files.find(file => file.thumbnail)?.thumbnail || null,
+      tags: String(hit.tags || ''),
+      isAiGenerated: hit.isAiGenerated === true,
+      isLowQuality: hit.isLowQuality === true
     };
   }
 
