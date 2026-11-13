@@ -14,6 +14,17 @@ class MediaGenerationService {
     this.pollIntervalMs = Math.max(10, Number(options.pollIntervalMs ?? process.env.VIDEO_PROVIDER_POLL_MS ?? 5000));
     this.maxPollMs = Math.max(1000, Number(options.maxPollMs ?? process.env.VIDEO_PROVIDER_TIMEOUT_MS ?? 60 * 60 * 1000));
     this.sleep = options.sleep || (ms => new Promise(resolve => setTimeout(resolve, ms)));
+    // Used only to turn scene text into short stock-footage search phrases.
+    if (options.aiText !== undefined) {
+      this.aiText = options.aiText;
+    } else {
+      try {
+        const { AITextService } = require('./ai-text-service');
+        this.aiText = new AITextService(credentials);
+      } catch (_error) {
+        this.aiText = null;
+      }
+    }
   }
 
   async settings() {
@@ -29,8 +40,133 @@ class MediaGenerationService {
       maxGeneratedSeconds: Math.max(0, Number(process.env.VIDEO_MAX_GENERATED_SECONDS || stored.video_max_generated_seconds || 60)),
       generateAudio: false,
       resolution: process.env.VIDEO_RESOLUTION || stored.video_resolution || '720p',
-      aspectRatio: process.env.VIDEO_ASPECT_RATIO || stored.video_aspect_ratio || '16:9'
+      aspectRatio: process.env.VIDEO_ASPECT_RATIO || stored.video_aspect_ratio || '16:9',
+      // Stock footage is free, so it is not limited by the paid-seconds cap above.
+      stockClipSeconds: Math.min(15, Math.max(4, Number(process.env.STOCK_CLIP_SECONDS || stored.stock_clip_seconds || 8)))
     };
+  }
+
+  // Ordered narrative scenes with a weight proportional to how much narration they carry.
+  sceneTexts(script = {}) {
+    const scenes = [];
+    if (script.hook?.text || script.title) {
+      scenes.push({ label: 'Hook', text: script.hook?.text || script.title });
+    }
+    for (const section of script.mainContent?.sections || []) {
+      const detail = typeof section.content === 'string'
+        ? section.content
+        : (section.items || section.steps || []).map(item => `${item.title || ''} ${item.description || ''}`).join(' ');
+      scenes.push({ label: section.title || 'Scene', text: `${section.title || ''}. ${detail}`.trim() });
+    }
+    if (script.conclusion?.finalThought) scenes.push({ label: 'Conclusion', text: script.conclusion.finalThought });
+    return scenes.map(scene => ({ ...scene, weight: Math.max(1, scene.text.split(/\s+/).length) }));
+  }
+
+  // Short stock-library search phrases. Prefers places, objects and nature over people,
+  // because the channel bible forbids anything that could read as a real victim.
+  async stockQueries(scenes, script = {}) {
+    const fallback = scenes.map(scene => this.keywordQuery(`${scene.label} ${scene.text}`));
+    if (!this.aiText?.isAvailable?.()) return fallback;
+    const prompt = `You choose stock-footage search phrases for a documentary video titled "${script.title || ''}".
+For each numbered scene, return ONE search phrase of 2 to 4 plain English words that a stock video library would match.
+Rules: describe places, landscapes, weather, objects, documents, maps or atmosphere. Avoid identifiable people, faces,
+children, brand names, logos, gore and anything a viewer could mistake for real footage of the actual event.
+Return ONLY a JSON array of ${scenes.length} strings, in order.
+
+${scenes.map((scene, index) => `${index + 1}. ${scene.label}: ${scene.text.slice(0, 400)}`).join('\n')}`;
+    try {
+      const raw = await this.aiText.generateText(prompt, { maxTokens: 600, temperature: 0.4 });
+      const match = String(raw || '').match(/\[[\s\S]*\]/);
+      const parsed = match ? JSON.parse(match[0]) : [];
+      return scenes.map((_, index) => {
+        const value = String(parsed[index] || '').replace(/[^\p{L}\p{N}\s-]/gu, ' ').replace(/\s+/g, ' ').trim();
+        return value && value.split(' ').length <= 6 ? value : fallback[index];
+      });
+    } catch (error) {
+      this.logger.warn(`Stock query generation failed; using keyword fallback: ${error.message}`);
+      return fallback;
+    }
+  }
+
+  keywordQuery(text) {
+    const stop = new Set(('the a an and or of to in on at for with by from as is was were be been it its this that these those ' +
+      'there their they them he she his her we you i our your not no but so if then than into over under about after before ' +
+      'what which who why how when where while one two three hook scene conclusion video').split(' '));
+    const words = String(text).toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/)
+      .filter(word => word.length > 3 && !stop.has(word));
+    const counts = new Map();
+    for (const word of words) counts.set(word, (counts.get(word) || 0) + 1);
+    const top = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([word]) => word);
+    return top.join(' ') || 'ocean landscape';
+  }
+
+  // Fill the whole narration with real stock clips: several distinct clips per scene,
+  // scene time proportional to its narration, no clip reused across the video when avoidable.
+  async generateStockClips({ provider, script, outputDir, productionId, targetDuration, settings }) {
+    const scenes = this.sceneTexts(script);
+    if (!scenes.length) return { clips: [], credits: [] };
+    const total = Math.max(settings.stockClipSeconds, Number(targetDuration) || 0);
+    const totalWeight = scenes.reduce((sum, scene) => sum + scene.weight, 0);
+    const queries = await this.stockQueries(scenes, script);
+    const targetWidth = /1080/.test(settings.resolution) ? 1920 : 1280;
+    const used = new Set();
+    const clips = [];
+    let index = 0;
+
+    for (const [sceneIndex, scene] of scenes.entries()) {
+      const sceneSeconds = (scene.weight / totalWeight) * total;
+      const needed = Math.max(1, Math.round(sceneSeconds / settings.stockClipSeconds));
+      const slot = sceneSeconds / needed;
+      let candidates = [];
+      for (const query of [queries[sceneIndex], this.keywordQuery(script.title || ''), 'ocean landscape']) {
+        if (candidates.length >= needed) break;
+        const found = await provider.search(query, { perPage: Math.min(40, needed + 10), targetWidth });
+        candidates.push(...found.filter(item => !used.has(item.id) && !candidates.some(c => c.id === item.id))
+          .map(item => ({ ...item, query })));
+      }
+      if (!candidates.length) {
+        this.logger.warn(`No stock footage found for scene "${scene.label}"; it will fall back to stills`);
+        continue;
+      }
+      for (let n = 0; n < needed; n++) {
+        const candidate = candidates[n % candidates.length];
+        used.add(candidate.id);
+        const outputPath = path.join(outputDir, `${productionId}_pexels_${candidate.id}.mp4`);
+        try {
+          await fs.access(outputPath);
+        } catch (_missing) {
+          await provider.download(candidate, outputPath);
+        }
+        if (!await this.isValidVideo(outputPath)) {
+          this.logger.warn(`Skipping invalid Pexels clip ${candidate.id}`);
+          continue;
+        }
+        clips.push({
+          index: index++,
+          label: scene.label,
+          prompt: candidate.query,
+          duration: Number(slot.toFixed(2)),
+          path: outputPath,
+          provider: 'pexels',
+          model: 'pexels-stock',
+          taskId: `pexels:${candidate.id}`,
+          attribution: {
+            source: 'Pexels',
+            videoId: candidate.id,
+            videoUrl: candidate.pageUrl,
+            photographer: candidate.photographer,
+            photographerUrl: candidate.photographerUrl
+          }
+        });
+      }
+    }
+
+    const credits = [];
+    for (const clip of clips) {
+      if (!credits.some(credit => credit.videoId === clip.attribution.videoId)) credits.push(clip.attribution);
+    }
+    this.logger.info(`Selected ${clips.length} Pexels clips from ${credits.length} videos for ${Math.round(total)}s of narration`);
+    return { clips, credits };
   }
 
   listProviders() { return this.registry.list(); }
@@ -67,7 +203,7 @@ class MediaGenerationService {
     }));
   }
 
-  async generateClips({ jobId, productionId, script, visualAssets = [], outputDir }) {
+  async generateClips({ jobId, productionId, script, visualAssets = [], outputDir, targetDuration }) {
     const settings = await this.settings();
     const routingRequest = {
       duration: settings.clipDuration,
@@ -76,6 +212,14 @@ class MediaGenerationService {
     };
     const provider = this.registry.select(settings.provider, settings.order, routingRequest);
     const providerInfo = provider.describe();
+    if (provider.capabilities?.stock && settings.mode !== 'slideshow') {
+      const stock = await this.generateStockClips({ provider, script, outputDir, productionId, targetDuration, settings });
+      return {
+        clips: stock.clips, credits: stock.credits, requestedProvider: settings.provider,
+        actualProvider: stock.clips.length ? provider.id : 'slideshow',
+        model: stock.clips.length ? providerInfo.model : 'local-ffmpeg', settings, realFootage: true
+      };
+    }
     if (provider.id === 'slideshow' || settings.mode === 'slideshow' || settings.maxGeneratedSeconds === 0) {
       return { clips: [], requestedProvider: settings.provider, actualProvider: 'slideshow', model: 'local-ffmpeg', settings };
     }

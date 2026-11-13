@@ -416,10 +416,75 @@ class SlideshowProvider extends VideoProvider {
   isAvailable() { return true; }
 }
 
+// Free stock footage from Pexels (https://www.pexels.com/api/). Unlike the generative
+// providers this one searches real, licensed footage, costs nothing, and returns
+// attribution so photographers can be credited in the video description.
+const PEXELS_SEARCH_URL = 'https://api.pexels.com/videos/search';
+const PEXELS_TARGET_WIDTH = 1920;
+
+class PexelsProvider extends VideoProvider {
+  constructor(credentials = {}, options = {}) {
+    super('pexels', {
+      model: 'pexels-stock',
+      capabilities: { stock: true, free: true, realFootage: true, text: true, minDuration: 1, maxDuration: Infinity }
+    });
+    const creds = normalizeCredentials(credentials);
+    this.apiKey = options.apiKey || creds.pexels?.apiKey || process.env.PEXELS_API_KEY;
+    this.http = options.http || axios;
+  }
+
+  isAvailable() { return Boolean(this.apiKey); }
+
+  async search(query, { perPage = 15, page = 1, targetWidth = PEXELS_TARGET_WIDTH } = {}) {
+    const response = await this.http.get(PEXELS_SEARCH_URL, {
+      headers: { Authorization: this.apiKey },
+      params: { query: String(query).slice(0, 100), orientation: 'landscape', size: 'medium', per_page: perPage, page },
+      timeout: 30000
+    });
+    return (response.data?.videos || []).map(video => PexelsProvider.toCandidate(video, targetWidth)).filter(Boolean);
+  }
+
+  // Pick one landscape MP4 rendition: the widest at or below targetWidth (1280 for 720p
+  // output keeps downloads small), else the smallest available.
+  static toCandidate(video = {}, targetWidth = PEXELS_TARGET_WIDTH) {
+    const files = (video.video_files || []).filter(file =>
+      file && file.link && file.file_type === 'video/mp4' && Number(file.width) >= Number(file.height)
+    );
+    if (!files.length || !video.id) return null;
+    const atOrBelow = files.filter(file => Number(file.width) <= targetWidth)
+      .sort((a, b) => Number(b.width) - Number(a.width));
+    const best = atOrBelow[0] || files.sort((a, b) => Number(a.width) - Number(b.width))[0];
+    return {
+      id: video.id,
+      pageUrl: video.url || `https://www.pexels.com/video/${video.id}/`,
+      duration: Number(video.duration) || 0,
+      photographer: video.user?.name || 'Unknown',
+      photographerUrl: video.user?.url || null,
+      fileUrl: best.link,
+      width: Number(best.width) || null,
+      height: Number(best.height) || null
+    };
+  }
+
+  async download(candidate, outputPath) {
+    const response = await this.http.get(candidate.fileUrl, { responseType: 'arraybuffer', timeout: 180000 });
+    await fs.mkdir(path.dirname(outputPath), { recursive: true });
+    await fs.writeFile(outputPath, Buffer.from(response.data));
+    return outputPath;
+  }
+
+  // Stock footage is selected per scene by MediaGenerationService.generateStockClips;
+  // the generic async task interface does not apply.
+  async createTask() {
+    throw new Error('Pexels is a stock-footage source; use MediaGenerationService.generateStockClips');
+  }
+}
+
 class VideoProviderRegistry {
   constructor(credentials = {}, options = {}) {
     const injected = options.providers || {};
     this.providers = new Map([
+      ['pexels', injected.pexels || new PexelsProvider(credentials, options.pexels)],
       ['seedance', injected.seedance || new SeedanceProvider(credentials, options.seedance)],
       ['minimax_h3', injected.minimax_h3 || new MiniMaxH3Provider(credentials, options.minimax_h3)],
       ['google_omni', injected.google_omni || new GoogleOmniProvider(credentials, options.google_omni)],
@@ -455,5 +520,6 @@ module.exports = {
   KlingProvider,
   WanProvider,
   SlideshowProvider,
+  PexelsProvider,
   safeModelError
 };

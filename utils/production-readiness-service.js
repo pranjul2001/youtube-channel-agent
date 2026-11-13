@@ -186,6 +186,15 @@ class ProductionReadinessService {
     if (configured.id === 'slideshow') {
       return { message: 'Local slideshow video generation is selected; no paid AI video provider is required.', details: { provider: 'slideshow' } };
     }
+    if (configured.capabilities?.stock) {
+      // Free stock source: a live search proves the key works without downloading or spending anything.
+      const found = await configured.search('ocean waves', { perPage: 3 });
+      if (!found.length) throw new Error(`${configured.id} answered but returned no usable landscape MP4 footage`);
+      return {
+        message: `${configured.id} stock footage search works (${found.length} landscape clips found); free, no paid probe needed.`,
+        details: { provider: configured.id, model: configured.model, sample: found[0].pageUrl }
+      };
+    }
     if (!includePaidVideo) {
       return {
         status: 'skipped',

@@ -121,15 +121,31 @@ class AIVideoGenerator {
 
     try {
       let generatedPath;
-      if (this.elevenLabsApiKey && this.elevenLabsVoiceId) {
+      // TTS_PROVIDER pins the narration voice (gemini | elevenlabs | openai). Unset or "auto"
+      // keeps the original order: ElevenLabs, then OpenAI, then Gemini.
+      const preferred = String(process.env.TTS_PROVIDER || 'auto').trim().toLowerCase();
+      const can = {
+        elevenlabs: Boolean(this.elevenLabsApiKey && this.elevenLabsVoiceId),
+        openai: Boolean(this.openai),
+        gemini: Boolean(this.gemini)
+      };
+      if (preferred !== 'auto' && !(preferred in can)) {
+        throw new Error(`TTS_PROVIDER "${preferred}" is not supported; use gemini, elevenlabs, openai or auto`);
+      }
+      if (preferred !== 'auto' && !can[preferred]) {
+        throw new Error(`TTS_PROVIDER is ${preferred} but its API key${preferred === 'elevenlabs' ? ' or voice ID' : ''} is not configured`);
+      }
+      const use = id => preferred === id || (preferred === 'auto' && can[id] &&
+        !Object.keys(can).slice(0, Object.keys(can).indexOf(id)).some(earlier => can[earlier]));
+      if (use('elevenlabs')) {
         provider = 'elevenlabs';
         model = this.elevenLabsModel;
         generatedPath = await this.generateElevenLabsTTS(text, outputPath);
-      } else if (this.openai) {
+      } else if (use('openai')) {
         provider = 'openai';
         model = 'gpt-4o-mini-tts';
         generatedPath = await this.generateOpenAITTS(text, outputPath);
-      } else if (this.gemini) {
+      } else if (use('gemini')) {
         provider = 'gemini';
         model = process.env.GEMINI_TTS_MODEL || 'gemini-3.8-flash-tts';
         generatedPath = await this.generateGeminiTTS(text, outputPath);
@@ -405,12 +421,20 @@ class AIVideoGenerator {
     this.lastVideoResult = null;
     try {
       if (this.mediaGeneration && options.productionId) {
+        // Size the visuals to the real narration when we can measure it.
+        let narrationSeconds = null;
+        try {
+          narrationSeconds = audioPath ? await this.getMediaDuration(audioPath) : null;
+        } catch (_error) { narrationSeconds = null; }
+        const targetDuration = narrationSeconds || this.parseDurationSeconds(options.estimatedDuration) ||
+          this.parseDurationSeconds(this.calculateScriptDuration(script));
         const generated = await this.mediaGeneration.generateClips({
           jobId: options.jobId || null,
           productionId: options.productionId,
           script,
           visualAssets,
-          outputDir: path.dirname(outputPath)
+          outputDir: path.dirname(outputPath),
+          targetDuration
         });
         if (generated.clips.length) {
           const produced = await this.generateHybridVideo(
@@ -418,18 +442,24 @@ class AIVideoGenerator {
             visualAssets,
             audioPath,
             outputPath,
-            options.estimatedDuration || this.calculateScriptDuration(script)
+            targetDuration
           );
+          const realFootage = generated.realFootage === true;
           this.lastVideoResult = {
             requestedProvider: generated.requestedProvider,
             actualProvider: generated.actualProvider,
             model: generated.model,
             mode: generated.settings.mode,
-            generatedSeconds: generated.clips.reduce((total, clip) => total + clip.duration, 0),
+            realFootage,
+            credits: generated.credits || [],
+            // Paid-cap accounting counts generative seconds only; stock footage is free.
+            generatedSeconds: realFootage ? 0 : generated.clips.reduce((total, clip) => total + clip.duration, 0),
+            stockSeconds: realFootage ? generated.clips.reduce((total, clip) => total + clip.duration, 0) : 0,
             tasks: generated.clips.map(clip => ({ scene: clip.index, taskId: clip.taskId, provider: clip.provider, model: clip.model })),
             scenes: generated.clips.map(clip => ({
               index: clip.index, label: clip.label, prompt: clip.prompt, duration: clip.duration,
-              path: clip.path, taskId: clip.taskId, provider: clip.provider, model: clip.model
+              path: clip.path, taskId: clip.taskId, provider: clip.provider, model: clip.model,
+              attribution: clip.attribution || null
             }))
           };
           return produced;

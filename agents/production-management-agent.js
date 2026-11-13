@@ -3,6 +3,7 @@ const fs = require('fs').promises;
 const { Logger } = require('../utils/logger');
 const { AIVideoGenerator } = require('../utils/ai-video-generator');
 const { SceneRepairService } = require('../utils/scene-repair-service');
+const { applyCreditsToDescription } = require('../utils/description-credits');
 
 class ProductionManagementAgent {
   constructor(db, credentials) {
@@ -316,8 +317,19 @@ class ProductionManagementAgent {
       const visualAssets = [];
       const profile = await this.db.getChannelProfile?.() || {};
       const visualStyle = profile.visual_style || 'ethereal';
-      
-      for (const prompt of visualPrompts) {
+
+      // AI scene images may be billed by the provider. Cap them per video; when unset the
+      // upstream behaviour (one per prompt) is kept. 0 = rely on stock footage only.
+      const settings = await this.db.getAllSettings?.() || {};
+      const rawCap = process.env.AI_SCENE_IMAGES_MAX ?? settings.ai_scene_images_max;
+      const imageCap = rawCap === undefined || rawCap === null || rawCap === ''
+        ? visualPrompts.length
+        : Math.max(0, Math.floor(Number(rawCap)) || 0);
+      if (imageCap < visualPrompts.length) {
+        this.logger.info(`AI scene images capped at ${imageCap} of ${visualPrompts.length} (ai_scene_images_max)`);
+      }
+
+      for (const prompt of visualPrompts.slice(0, imageCap)) {
         const assets = await this.aiVideoGenerator.generateVisualAssets(prompt, visualStyle, 1);
         visualAssets.push(...assets);
       }
@@ -618,10 +630,23 @@ class ProductionManagementAgent {
         format: 'mp4',
         provider: this.aiVideoGenerator.lastVideoResult || { actualProvider: 'slideshow', model: 'local-ffmpeg' }
       };
+      // Generative video providers produce synthetic media; real stock footage (Pexels) does not.
+      // The reviewer still confirms or changes this flag at the approval gate.
+      const videoResult = this.aiVideoGenerator.lastVideoResult || {};
       productionData.containsSyntheticMedia = Boolean(
-        this.aiVideoGenerator.lastVideoResult?.actualProvider &&
-        !['slideshow', 'simulation'].includes(this.aiVideoGenerator.lastVideoResult.actualProvider)
+        videoResult.actualProvider &&
+        videoResult.realFootage !== true &&
+        !['slideshow', 'simulation'].includes(videoResult.actualProvider)
       );
+
+      // Channel bible: credit stock videographers and disclose AI-assisted narration.
+      const narrationProvider = productionData.assets.audio?.provider;
+      if (productionData.seo) {
+        productionData.seo.description = applyCreditsToDescription(productionData.seo.description, {
+          credits: videoResult.credits || [],
+          aiNarration: Boolean(narrationProvider && narrationProvider !== 'simulation')
+        });
+      }
       
       this.logger.info('AI video assembly complete');
       return finalVideoPath;

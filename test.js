@@ -74,7 +74,10 @@ class SystemTest {
       { name: 'Reply Approval and Posting', test: () => this.testReplyApprovalAndPosting() },
       { name: 'Engagement AI Provider Wiring', test: () => this.testEngagementAIProviderWiring() },
       { name: 'Engagement Sync Schedule', test: () => this.testEngagementSyncSchedule() },
-      { name: 'Growth Experiment Refresh Schedule', test: () => this.testGrowthExperimentRefreshSchedule() }
+      { name: 'Growth Experiment Refresh Schedule', test: () => this.testGrowthExperimentRefreshSchedule() },
+      { name: 'Pexels Stock Footage', test: () => this.testPexelsStockFootage() },
+      { name: 'Description Credits and Disclosure', test: () => this.testDescriptionCredits() },
+      { name: 'Narration Provider Selection', test: () => this.testNarrationProviderSelection() }
     ];
 
     let passed = 0;
@@ -3869,6 +3872,112 @@ class SystemTest {
     }
     const noService = new DailyAutomation({}, fakeDb, { generateContent: async () => {} });
     await noService.collectAudienceEngagement(); // must be a silent no-op, not a crash
+  }
+
+  async testPexelsStockFootage() {
+    const { PexelsProvider, VideoProviderRegistry } = require('./utils/video-providers');
+    const { MediaGenerationService } = require('./utils/media-generation-service');
+    const fsp = require('fs').promises;
+    const os = require('os');
+
+    const video = (id, name) => ({
+      id, url: `https://www.pexels.com/video/clip-${id}/`, duration: 20, user: { name, url: `https://www.pexels.com/@${name}` },
+      video_files: [
+        { link: `https://cdn.test/${id}-portrait.mp4`, file_type: 'video/mp4', width: 1080, height: 1920 },
+        { link: `https://cdn.test/${id}-4k.mp4`, file_type: 'video/mp4', width: 3840, height: 2160 },
+        { link: `https://cdn.test/${id}-720.mp4`, file_type: 'video/mp4', width: 1280, height: 720 },
+        { link: `https://cdn.test/${id}-1080.mp4`, file_type: 'video/mp4', width: 1920, height: 1080 }
+      ]
+    });
+    const pick = PexelsProvider.toCandidate(video(1, 'Ana'), 1280);
+    if (pick.fileUrl !== 'https://cdn.test/1-720.mp4') throw new Error(`Expected the 720p landscape rendition, got ${pick.fileUrl}`);
+    if (PexelsProvider.toCandidate({ id: 2, video_files: [{ link: 'x', file_type: 'video/mp4', width: 720, height: 1280 }] })) {
+      throw new Error('Portrait-only footage must be rejected');
+    }
+
+    const searches = [];
+    const http = {
+      get: async (url, options = {}) => {
+        if (url.includes('api.pexels.com')) {
+          searches.push(options.params.query);
+          if (options.headers.Authorization !== 'test-key') throw new Error('Pexels key header missing');
+          const base = searches.length * 10;
+          return { data: { videos: [video(base + 1, 'Ana'), video(base + 2, 'Ben'), video(base + 3, 'Cy')] } };
+        }
+        return { data: Buffer.from('fake-mp4') };
+      }
+    };
+    if (new PexelsProvider({}, { apiKey: '' }).isAvailable()) throw new Error('Pexels must be unavailable without a key');
+    const provider = new PexelsProvider({}, { apiKey: 'test-key', http });
+    const registry = new VideoProviderRegistry({}, { providers: { pexels: provider } });
+    if (registry.select('pexels').id !== 'pexels') throw new Error('Registry did not select Pexels');
+
+    const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'yaa-pexels-'));
+    const service = new MediaGenerationService(null, {}, {
+      registry,
+      aiText: { isAvailable: () => true, generateText: async () => '["stormy sea lighthouse", "old documents desk"]' }
+    });
+    service.isValidVideo = async () => true;
+    const script = {
+      title: 'The Vanishing',
+      hook: { text: 'The light was out.' },
+      mainContent: { sections: [{ title: 'The investigation', content: 'An inspector read the logbook and walked the island landings for many hours.' }] }
+    };
+    const settings = { ...(await service.settings()), stockClipSeconds: 8, resolution: '720p' };
+    const result = await service.generateStockClips({ provider, script, outputDir, productionId: 'prod_test', targetDuration: 60, settings });
+    const total = result.clips.reduce((sum, clip) => sum + clip.duration, 0);
+    if (Math.abs(total - 60) > 1) throw new Error(`Stock clips should cover the narration (60s), got ${total}s`);
+    if (searches[0] !== 'stormy sea lighthouse') throw new Error('AI search phrase was not used');
+    if (!result.credits.length || result.credits.some(credit => !credit.photographer || !credit.videoUrl)) {
+      throw new Error('Every stock clip needs photographer attribution');
+    }
+    if (result.clips.some(clip => clip.provider !== 'pexels' || !clip.attribution)) throw new Error('Clips must carry Pexels attribution');
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  }
+
+  async testDescriptionCredits() {
+    const { applyCreditsToDescription, CREDITS_MARKER } = require('./utils/description-credits');
+    const credits = [
+      { photographer: 'Ana <b>', videoUrl: 'https://www.pexels.com/video/1/', videoId: 1 },
+      { photographer: 'Ben', videoUrl: 'https://www.pexels.com/video/2/', videoId: 2 }
+    ];
+    const once = applyCreditsToDescription('A calm, sourced story.', { credits, aiNarration: true });
+    const twice = applyCreditsToDescription(once, { credits, aiNarration: true });
+    if (once !== twice) throw new Error('Re-applying credits must not stack duplicate blocks');
+    if (!once.includes('AI-assisted') || !once.includes('Video by Ben on Pexels')) throw new Error('Disclosure or credit line missing');
+    if (/[<>]/.test(once)) throw new Error('YouTube rejects angle brackets in descriptions');
+    if (once.split(CREDITS_MARKER).length !== 2) throw new Error('Exactly one credits block expected');
+    const many = Array.from({ length: 400 }, (_, index) => ({ photographer: `Videographer ${index}`, videoUrl: `https://www.pexels.com/video/${index}/`, videoId: index }));
+    const long = applyCreditsToDescription('x'.repeat(3000), { credits: many, aiNarration: true });
+    if (long.length > 5000 || !long.includes('more videographers on Pexels')) throw new Error('Long credit lists must fit YouTube\'s 5000-character limit');
+  }
+
+  async testNarrationProviderSelection() {
+    const { AIVideoGenerator } = require('./utils/ai-video-generator');
+    const previous = process.env.TTS_PROVIDER;
+    const generator = Object.create(AIVideoGenerator.prototype);
+    generator.logger = { info() {}, error() {}, warn() {} };
+    generator.elevenLabsApiKey = 'k';
+    generator.elevenLabsVoiceId = 'v';
+    generator.openai = null;
+    generator.gemini = {};
+    generator.isUsableAudioFile = async () => true;
+    generator.generateElevenLabsTTS = async () => 'eleven.mp3';
+    generator.generateGeminiTTS = async () => 'gemini.mp3';
+    try {
+      delete process.env.TTS_PROVIDER;
+      await generator.generateTTSAudio('hello', 'out.mp3');
+      if (generator.lastNarrationResult.provider !== 'elevenlabs') throw new Error('auto should keep ElevenLabs first');
+      process.env.TTS_PROVIDER = 'gemini';
+      await generator.generateTTSAudio('hello', 'out.mp3');
+      if (generator.lastNarrationResult.provider !== 'gemini') throw new Error('TTS_PROVIDER=gemini was ignored');
+      process.env.TTS_PROVIDER = 'openai';
+      let failed = false;
+      try { await generator.generateTTSAudio('hello', 'out.mp3'); } catch (_error) { failed = true; }
+      if (!failed) throw new Error('A pinned provider without a key must fail loudly, not silently switch');
+    } finally {
+      if (previous === undefined) delete process.env.TTS_PROVIDER; else process.env.TTS_PROVIDER = previous;
+    }
   }
 
   async testGrowthExperimentRefreshSchedule() {
