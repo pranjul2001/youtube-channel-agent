@@ -97,3 +97,4 @@ data/thumbnails/
 !.env.example
 *.key
 output/
+data/media-cache/
