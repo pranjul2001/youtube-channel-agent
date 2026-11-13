@@ -429,6 +429,7 @@ class PexelsProvider extends VideoProvider {
       capabilities: { stock: true, free: true, realFootage: true, text: true, minDuration: 1, maxDuration: Infinity }
     });
     const creds = normalizeCredentials(credentials);
+    this.sourceName = 'Pexels';
     this.apiKey = options.apiKey || creds.pexels?.apiKey || process.env.PEXELS_API_KEY;
     this.http = options.http || axios;
   }
@@ -480,11 +481,87 @@ class PexelsProvider extends VideoProvider {
   }
 }
 
+// Free stock footage from Pixabay (https://pixabay.com/api/docs/). Same interface as
+// PexelsProvider. Pixabay takes the key as a query parameter, so errors are redacted by
+// safeModelError and the key is never logged.
+const PIXABAY_VIDEO_URL = 'https://pixabay.com/api/videos/';
+
+class PixabayProvider extends VideoProvider {
+  constructor(credentials = {}, options = {}) {
+    super('pixabay', {
+      model: 'pixabay-stock',
+      capabilities: { stock: true, free: true, realFootage: true, text: true, minDuration: 1, maxDuration: Infinity }
+    });
+    const creds = normalizeCredentials(credentials);
+    this.sourceName = 'Pixabay';
+    this.apiKey = options.apiKey || creds.pixabay?.apiKey || process.env.PIXABAY_API_KEY;
+    this.http = options.http || axios;
+  }
+
+  isAvailable() { return Boolean(this.apiKey); }
+
+  async search(query, { perPage = 15, page = 1, targetWidth = PEXELS_TARGET_WIDTH } = {}) {
+    try {
+      const response = await this.http.get(PIXABAY_VIDEO_URL, {
+        params: {
+          key: this.apiKey,
+          q: String(query).slice(0, 100),
+          video_type: 'film',
+          safesearch: true,
+          per_page: Math.min(200, Math.max(3, perPage)),
+          page
+        },
+        timeout: 30000
+      });
+      return (response.data?.hits || []).map(hit => PixabayProvider.toCandidate(hit, targetWidth)).filter(Boolean);
+    } catch (error) {
+      const message = safeModelError(error)
+        .replace(/([?&]key=)[^&\s]+/gi, '$1[redacted]')
+        .split(this.apiKey).join('[redacted]');
+      throw new Error(`Pixabay search failed: ${message}`);
+    }
+  }
+
+  // Pixabay offers large/medium/small/tiny renditions; pick the widest landscape one at or
+  // below targetWidth, else the smallest landscape one.
+  static toCandidate(hit = {}, targetWidth = PEXELS_TARGET_WIDTH) {
+    const files = Object.values(hit.videos || {}).filter(file =>
+      file && file.url && Number(file.width) >= Number(file.height) && Number(file.width) > 0
+    );
+    if (!files.length || !hit.id) return null;
+    const atOrBelow = files.filter(file => Number(file.width) <= targetWidth)
+      .sort((a, b) => Number(b.width) - Number(a.width));
+    const best = atOrBelow[0] || files.sort((a, b) => Number(a.width) - Number(b.width))[0];
+    return {
+      id: hit.id,
+      pageUrl: hit.pageURL || `https://pixabay.com/videos/id-${hit.id}/`,
+      duration: Number(hit.duration) || 0,
+      photographer: hit.user || 'Unknown',
+      photographerUrl: hit.user && hit.user_id ? `https://pixabay.com/users/${hit.user}-${hit.user_id}/` : null,
+      fileUrl: best.url,
+      width: Number(best.width) || null,
+      height: Number(best.height) || null
+    };
+  }
+
+  async download(candidate, outputPath) {
+    const response = await this.http.get(candidate.fileUrl, { responseType: 'arraybuffer', timeout: 180000 });
+    await fs.mkdir(path.dirname(outputPath), { recursive: true });
+    await fs.writeFile(outputPath, Buffer.from(response.data));
+    return outputPath;
+  }
+
+  async createTask() {
+    throw new Error('Pixabay is a stock-footage source; use MediaGenerationService.generateStockClips');
+  }
+}
+
 class VideoProviderRegistry {
   constructor(credentials = {}, options = {}) {
     const injected = options.providers || {};
     this.providers = new Map([
       ['pexels', injected.pexels || new PexelsProvider(credentials, options.pexels)],
+      ['pixabay', injected.pixabay || new PixabayProvider(credentials, options.pixabay)],
       ['seedance', injected.seedance || new SeedanceProvider(credentials, options.seedance)],
       ['minimax_h3', injected.minimax_h3 || new MiniMaxH3Provider(credentials, options.minimax_h3)],
       ['google_omni', injected.google_omni || new GoogleOmniProvider(credentials, options.google_omni)],
@@ -521,5 +598,6 @@ module.exports = {
   WanProvider,
   SlideshowProvider,
   PexelsProvider,
+  PixabayProvider,
   safeModelError
 };

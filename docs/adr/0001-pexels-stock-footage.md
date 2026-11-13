@@ -37,3 +37,12 @@ the owner's approval.
   limit is far above the ~10 searches a video needs.
 - Stock clips are generic visuals, not footage of the actual event; scripts must not imply
   otherwise.
+
+## Update 2026-11-13: Pixabay as the active source
+
+Pexels paused new API key issuance (from about 30 September 2026, no reopening date), so
+no key could be obtained. `PixabayProvider` implements the same interface (free key at
+signup, landscape MP4 renditions, attribution to the uploader) and is the active source
+(`video_provider=pixabay`). Pixabay passes the key as a query parameter, so its errors are
+redacted before logging. Pexels stays available for when keys reopen; credits name the
+source per clip.

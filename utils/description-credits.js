@@ -8,7 +8,7 @@ const clean = value => String(value || '').replace(/[<>]/g, '').trim();
 function creditLine(credit) {
   const name = clean(credit.photographer) || 'Unknown';
   const page = clean(credit.videoUrl);
-  return `• Video by ${name} on Pexels${page ? `: ${page}` : ''}`;
+  return `• Video by ${name} on ${clean(credit.source) || 'Pexels'}${page ? `: ${page}` : ''}`;
 }
 
 function buildFooter({ credits = [], aiNarration = false }, maxLength = Infinity) {
@@ -16,12 +16,13 @@ function buildFooter({ credits = [], aiNarration = false }, maxLength = Infinity
   if (aiNarration) head.push('Narration is AI-assisted (synthetic voice). Script and facts are human-reviewed against the sources listed.');
   if (!credits.length) return head.length > 1 ? head.join('\n') : '';
 
-  head.push('Stock footage: Pexels (pexels.com). Thank you to these videographers:');
+  const sources = [...new Set(credits.map(credit => clean(credit.source) || 'Pexels'))];
+  head.push(`Stock footage: ${sources.join(' and ')}. Thank you to these videographers:`);
   const lines = [...head];
   for (const [index, credit] of credits.entries()) {
     const line = creditLine(credit);
     const remaining = credits.length - index;
-    const overflow = `• …and ${remaining} more videographers on Pexels`;
+    const overflow = `• …and ${remaining} more videographers on ${sources.join(' and ')}`;
     if ([...lines, line].join('\n').length > maxLength) {
       lines.push(overflow);
       break;

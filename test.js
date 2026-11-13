@@ -76,6 +76,7 @@ class SystemTest {
       { name: 'Engagement Sync Schedule', test: () => this.testEngagementSyncSchedule() },
       { name: 'Growth Experiment Refresh Schedule', test: () => this.testGrowthExperimentRefreshSchedule() },
       { name: 'Pexels Stock Footage', test: () => this.testPexelsStockFootage() },
+      { name: 'Pixabay Stock Footage', test: () => this.testPixabayStockFootage() },
       { name: 'Description Credits and Disclosure', test: () => this.testDescriptionCredits() },
       { name: 'Narration Provider Selection', test: () => this.testNarrationProviderSelection() }
     ];
@@ -3933,6 +3934,37 @@ class SystemTest {
     }
     if (result.clips.some(clip => clip.provider !== 'pexels' || !clip.attribution)) throw new Error('Clips must carry Pexels attribution');
     await fsp.rm(outputDir, { recursive: true, force: true });
+  }
+
+  async testPixabayStockFootage() {
+    const { PixabayProvider, VideoProviderRegistry } = require('./utils/video-providers');
+    const hit = {
+      id: 77, pageURL: 'https://pixabay.com/videos/sea-77/', duration: 18, user: 'Mara', user_id: 5,
+      videos: {
+        large: { url: 'https://cdn.pixabay.test/77-large.mp4', width: 1920, height: 1080 },
+        medium: { url: 'https://cdn.pixabay.test/77-medium.mp4', width: 1280, height: 720 },
+        small: { url: 'https://cdn.pixabay.test/77-small.mp4', width: 960, height: 540 },
+        tiny: { url: '', width: 0, height: 0 }
+      }
+    };
+    const pick = PixabayProvider.toCandidate(hit, 1280);
+    if (pick.fileUrl !== 'https://cdn.pixabay.test/77-medium.mp4') throw new Error(`Expected 720p rendition, got ${pick.fileUrl}`);
+    if (!pick.photographer || !pick.pageUrl.includes('pixabay.com')) throw new Error('Pixabay attribution missing');
+
+    let params = null;
+    const ok = new PixabayProvider({}, { apiKey: 'secret-key', http: { get: async (_url, options) => { params = options.params; return { data: { hits: [hit] } }; } } });
+    const found = await ok.search('stormy sea', { perPage: 5, targetWidth: 1280 });
+    if (found.length !== 1 || params.q !== 'stormy sea' || params.safesearch !== true) throw new Error('Pixabay search parameters wrong');
+    const registry = new VideoProviderRegistry({}, { providers: { pixabay: ok } });
+    if (registry.select('pixabay').sourceName !== 'Pixabay') throw new Error('Registry did not select Pixabay');
+
+    const failing = new PixabayProvider({}, { apiKey: 'secret-key', http: { get: async () => { throw new Error('GET https://pixabay.com/api/videos/?key=secret-key&q=x failed'); } } });
+    try {
+      await failing.search('x');
+      throw new Error('Expected failure');
+    } catch (error) {
+      if (error.message.includes('secret-key')) throw new Error('Pixabay key leaked into an error message');
+    }
   }
 
   async testDescriptionCredits() {

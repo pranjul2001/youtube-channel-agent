@@ -131,14 +131,14 @@ ${scenes.map((scene, index) => `${index + 1}. ${scene.label}: ${scene.text.slice
       for (let n = 0; n < needed; n++) {
         const candidate = candidates[n % candidates.length];
         used.add(candidate.id);
-        const outputPath = path.join(outputDir, `${productionId}_pexels_${candidate.id}.mp4`);
+        const outputPath = path.join(outputDir, `${productionId}_${provider.id}_${candidate.id}.mp4`);
         try {
           await fs.access(outputPath);
         } catch (_missing) {
           await provider.download(candidate, outputPath);
         }
         if (!await this.isValidVideo(outputPath)) {
-          this.logger.warn(`Skipping invalid Pexels clip ${candidate.id}`);
+          this.logger.warn(`Skipping invalid ${provider.sourceName} clip ${candidate.id}`);
           continue;
         }
         clips.push({
@@ -147,11 +147,11 @@ ${scenes.map((scene, index) => `${index + 1}. ${scene.label}: ${scene.text.slice
           prompt: candidate.query,
           duration: Number(slot.toFixed(2)),
           path: outputPath,
-          provider: 'pexels',
-          model: 'pexels-stock',
-          taskId: `pexels:${candidate.id}`,
+          provider: provider.id,
+          model: provider.model,
+          taskId: `${provider.id}:${candidate.id}`,
           attribution: {
-            source: 'Pexels',
+            source: provider.sourceName,
             videoId: candidate.id,
             videoUrl: candidate.pageUrl,
             photographer: candidate.photographer,
@@ -163,9 +163,9 @@ ${scenes.map((scene, index) => `${index + 1}. ${scene.label}: ${scene.text.slice
 
     const credits = [];
     for (const clip of clips) {
-      if (!credits.some(credit => credit.videoId === clip.attribution.videoId)) credits.push(clip.attribution);
+      if (!credits.some(credit => credit.source === clip.attribution.source && credit.videoId === clip.attribution.videoId)) credits.push(clip.attribution);
     }
-    this.logger.info(`Selected ${clips.length} Pexels clips from ${credits.length} videos for ${Math.round(total)}s of narration`);
+    this.logger.info(`Selected ${clips.length} ${provider.sourceName} clips from ${credits.length} videos for ${Math.round(total)}s of narration`);
     return { clips, credits };
   }
 
