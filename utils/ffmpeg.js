@@ -41,8 +41,11 @@ async function checkFFmpeg() {
   }
 }
 
+// Every FFmpeg run is time-bounded so a runaway encode (e.g. an unbounded loop) is killed
+// instead of filling the disk. Override with FFMPEG_TIMEOUT_MS.
 async function runFFmpeg(args) {
-  return execFileAsync(getFFmpegPath(), args, { maxBuffer: 32 * 1024 * 1024 });
+  const timeout = Number(process.env.FFMPEG_TIMEOUT_MS) || 45 * 60 * 1000;
+  return execFileAsync(getFFmpegPath(), args, { maxBuffer: 32 * 1024 * 1024, timeout, killSignal: 'SIGKILL' });
 }
 
 function getFFprobePath() {

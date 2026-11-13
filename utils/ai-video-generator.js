@@ -972,8 +972,20 @@ class AIVideoGenerator {
       ? outputPath.replace(/\.mp4$/i, '_muxed.mp4')
       : outputPath;
 
-    const videoInput = options.loopVideo ? ['-stream_loop', '-1', '-i', videoPath] : ['-i', videoPath];
-    await runFFmpeg(['-y', ...videoInput, '-i', audioPath, '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', '-c:a', 'aac', '-shortest', muxPath]);
+    // With -c:v copy, -shortest does not stop an infinitely looped video input: FFmpeg kept
+    // writing until the disk filled (375 GB in one run). Always bound the output explicitly:
+    // -t at the narration length, and -fs as a hard size ceiling. If the narration length
+    // cannot be measured, do not loop at all.
+    let narrationSeconds = null;
+    try {
+      narrationSeconds = await this.getMediaDuration(audioPath);
+    } catch (_error) { narrationSeconds = null; }
+    const canLoop = options.loopVideo && Number.isFinite(narrationSeconds) && narrationSeconds > 0;
+    const videoInput = canLoop ? ['-stream_loop', '-1', '-i', videoPath] : ['-i', videoPath];
+    const bound = Number.isFinite(narrationSeconds) && narrationSeconds > 0 ? ['-t', narrationSeconds.toFixed(3)] : [];
+    const maxBytes = String(Number(process.env.FFMPEG_MAX_OUTPUT_BYTES) || 8 * 1024 * 1024 * 1024);
+    await runFFmpeg(['-y', ...videoInput, '-i', audioPath, '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', '-c:a', 'aac',
+      '-shortest', ...bound, '-fs', maxBytes, muxPath]);
 
     if (muxPath !== outputPath) {
       await fs.rename(muxPath, outputPath);

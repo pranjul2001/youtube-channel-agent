@@ -78,7 +78,8 @@ class SystemTest {
       { name: 'Pexels Stock Footage', test: () => this.testPexelsStockFootage() },
       { name: 'Pixabay Stock Footage', test: () => this.testPixabayStockFootage() },
       { name: 'Description Credits and Disclosure', test: () => this.testDescriptionCredits() },
-      { name: 'Narration Provider Selection', test: () => this.testNarrationProviderSelection() }
+      { name: 'Narration Provider Selection', test: () => this.testNarrationProviderSelection() },
+      { name: 'Looped Video Stops at Narration Length', test: () => this.testLoopedVideoIsBounded() }
     ];
 
     let passed = 0;
@@ -3965,6 +3966,31 @@ class SystemTest {
     } catch (error) {
       if (error.message.includes('secret-key')) throw new Error('Pixabay key leaked into an error message');
     }
+  }
+
+  async testLoopedVideoIsBounded() {
+    // Regression: -stream_loop -1 with -c:v copy ignored -shortest and wrote 375 GB.
+    const { AIVideoGenerator } = require('./utils/ai-video-generator');
+    const { runFFmpeg, getMediaDuration } = require('./utils/ffmpeg');
+    const fsp = require('fs').promises;
+    const os = require('os');
+    const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'yaa-loop-'));
+    const video = path.join(dir, 'v.mp4');
+    const audio = path.join(dir, 'a.mp3');
+    const out = path.join(dir, 'out.mp4');
+    await runFFmpeg(['-y', '-f', 'lavfi', '-i', 'testsrc=size=320x180:rate=30:duration=2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', video]);
+    await runFFmpeg(['-y', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=6', '-c:a', 'libmp3lame', audio]);
+    const generator = Object.create(AIVideoGenerator.prototype);
+    generator.logger = { info() {}, warn() {}, error() {} };
+    generator.getMediaDuration = getMediaDuration;
+    generator.isUsableAudioFile = async () => true;
+    const started = Date.now();
+    await generator.addAudioToVideo(video, audio, out, { loopVideo: true });
+    const seconds = await getMediaDuration(out);
+    const bytes = (await fsp.stat(out)).size;
+    await fsp.rm(dir, { recursive: true, force: true });
+    if (Math.abs(seconds - 6) > 0.6) throw new Error(`Looped output should match 6s narration, got ${seconds}s`);
+    if (bytes > 20 * 1024 * 1024 || Date.now() - started > 60000) throw new Error('Looped mux was not bounded');
   }
 
   async testDescriptionCredits() {
