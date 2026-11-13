@@ -174,7 +174,9 @@ class ProductionManagementAgent {
     // Add main content
     if (script.mainContent && script.mainContent.sections) {
       script.mainContent.sections.forEach((section, index) => {
-        ttsText += `Section ${index + 1}: ${section.title}\n`;
+        // Section titles are scene labels, not narration: reading "Section 1: ..." aloud
+        // makes every video sound templated (channel bible: never look mass-produced).
+        if (section.speakTitle === true) ttsText += `${section.title}.\n`;
         
         if (Array.isArray(section.content)) {
           section.content.forEach(line => {
@@ -201,19 +203,19 @@ class ProductionManagementAgent {
     
     // Add conclusion
     if (script.conclusion) {
-      script.conclusion.recap.forEach(line => {
+      (script.conclusion.recap || []).forEach(line => {
         if (typeof line === 'string') {
           ttsText += `${line}\n`;
         }
       });
-      ttsText += `\n${script.conclusion.finalThought}\n\n`;
+      if (script.conclusion.finalThought) ttsText += `\n${script.conclusion.finalThought}\n\n`;
     }
     
     // Add CTA
     if (script.callToAction) {
-      ttsText += `${script.callToAction.subscribe}\n`;
-      ttsText += `${script.callToAction.like}\n`;
-      ttsText += `${script.callToAction.comment}\n`;
+      for (const line of [script.callToAction.subscribe, script.callToAction.like, script.callToAction.comment]) {
+        if (typeof line === 'string' && line.trim()) ttsText += `${line}\n`;
+      }
     }
     
     return ttsText;
