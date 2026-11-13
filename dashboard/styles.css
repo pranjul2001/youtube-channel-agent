@@ -971,3 +971,13 @@ body.scrolled .topbar { border-color: rgba(151, 167, 195, .32); }
 .comment-card { border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: grid; gap: 8px; margin-bottom: 12px; }
 .comment-original { opacity: 0.8; font-size: 0.9rem; white-space: pre-wrap; margin: 0; }
 .comment-card textarea { width: 100%; min-height: 72px; resize: vertical; }
+
+/* ============ In-page prompt/confirm (replaces native dialogs) ============ */
+.ask-dialog { width: min(480px, calc(100vw - 32px)); }
+.ask-message { margin: 0 0 16px; white-space: pre-wrap; line-height: 1.5; }
+.ask-input {
+  width: 100%; box-sizing: border-box; margin-bottom: 16px; padding: 10px 12px;
+  border: 1px solid var(--line-strong); border-radius: 8px;
+  background: var(--surface-inset); color: var(--text); font: inherit;
+}
+.ask-actions { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }

@@ -24,8 +24,45 @@ function apiKey() {
   return localStorage.getItem('yaa_api_key') || '';
 }
 
-function requestApiKey() {
-  const key = prompt('Enter the API_KEY value from your .env. It stays in this browser only.', apiKey());
+// In-page replacements for window.prompt/confirm. Embedded browsers (e.g. the VS Code
+// Simple Browser) do not support the native dialogs, which silently broke API-key entry
+// and could record "no" for approval-gate questions such as synthetic-media disclosure.
+// Every answer must come from an explicit click: Escape or Cancel resolves to null/false.
+function askDialog({ message, input = false, secret = false, defaultValue = '' }) {
+  return new Promise(resolve => {
+    const dialog = document.createElement('dialog');
+    dialog.className = 'dialog ask-dialog';
+    dialog.innerHTML = `<form method="dialog">
+      <p class="ask-message"></p>
+      ${input ? `<input class="ask-input" type="${secret ? 'password' : 'text'}" autocomplete="off">` : ''}
+      <div class="ask-actions">
+        <button class="button primary" value="ok" type="submit">OK</button>
+        <button class="button ghost" value="cancel" type="submit">Cancel</button>
+      </div>
+    </form>`;
+    dialog.querySelector('.ask-message').textContent = message;
+    const field = dialog.querySelector('.ask-input');
+    if (field) field.value = defaultValue;
+    dialog.addEventListener('close', () => {
+      const ok = dialog.returnValue === 'ok';
+      dialog.remove();
+      resolve(input ? (ok ? field.value : null) : ok);
+    }, { once: true });
+    document.body.appendChild(dialog);
+    dialog.showModal();
+    (field || dialog.querySelector('button[value="cancel"]')).focus();
+  });
+}
+const askText = (message, defaultValue = '') => askDialog({ message, input: true, defaultValue });
+const askConfirm = message => askDialog({ message });
+
+async function requestApiKey() {
+  const key = await askDialog({
+    message: 'Enter the API_KEY value from your .env. It stays in this browser only.',
+    input: true,
+    secret: true,
+    defaultValue: apiKey()
+  });
   if (key !== null) localStorage.setItem('yaa_api_key', key.trim());
   return key;
 }
@@ -40,7 +77,7 @@ async function api(url, options = {}, retry = true) {
       ...(options.headers || {})
     }
   });
-  if (response.status === 401 && retry && requestApiKey() !== null) return api(url, options, false);
+  if (response.status === 401 && retry && (await requestApiKey()) !== null) return api(url, options, false);
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = new Error(data.error || response.statusText || 'Request failed');
@@ -1146,8 +1183,8 @@ async function refreshContentDialog(productionId, message) {
 }
 
 async function uploadSceneAsset(productionId, sceneId, file) {
-  if (!confirm('Confirm you own or have permission to use this replacement asset.')) return;
-  const synthetic = confirm('Does this replacement contain realistic altered or synthetic media that should be disclosed to YouTube?');
+  if (!await askConfirm('Confirm you own or have permission to use this replacement asset.')) return;
+  const synthetic = await askConfirm('Does this replacement contain realistic altered or synthetic media that should be disclosed to YouTube?');
   $('#loading').classList.add('active');
   try {
     await api(`/api/content/${encodeURIComponent(productionId)}/scenes/${encodeURIComponent(sceneId)}/asset`, {
@@ -1255,7 +1292,7 @@ document.addEventListener('click', async event => {
   if (open) return openContent(open.dataset.openContent);
 
   const cancel = event.target.closest('[data-cancel-job]');
-  if (cancel && confirm('Cancel this generation job after its current stage?')) {
+  if (cancel && await askConfirm('Cancel this generation job after its current stage?')) {
     await mutate(`/api/jobs/${encodeURIComponent(cancel.dataset.cancelJob)}/cancel`, 'POST', {}, 'Cancellation requested.').catch(() => {});
   }
 
@@ -1269,7 +1306,7 @@ document.addEventListener('click', async event => {
     const jobId = resume.dataset.resumeJob;
     const select = $$('[data-resume-stage-for]').find(item => item.dataset.resumeStageFor === jobId);
     const stage = select?.value;
-    if (confirm(`Resume this job from ${label(stage)}? Later checkpoints will be regenerated.`)) {
+    if (await askConfirm(`Resume this job from ${label(stage)}? Later checkpoints will be regenerated.`)) {
       await mutate(`/api/jobs/${encodeURIComponent(jobId)}/resume`, 'POST', { stage }, `Generation resumed from ${label(stage)}.`).catch(() => {});
     }
   }
@@ -1294,7 +1331,7 @@ document.addEventListener('click', async event => {
       adopt: 'Adopt the evidence-backed winner on YouTube and approve its learning for future plans?',
       cancel: 'Cancel this experiment and restore the control title and thumbnail?'
     };
-    if (prompts[action] && !confirm(prompts[action])) return;
+    if (prompts[action] && !await askConfirm(prompts[action])) return;
     const messages = {
       approve: 'Experiment plan approved.',
       start: 'Controlled experiment started.',
@@ -1367,7 +1404,7 @@ document.addEventListener('click', async event => {
     const card = replyApprove.closest('[data-reply-card]');
     const text = card?.querySelector('[data-reply-text]')?.value || '';
     if (!text.trim()) return showToast('Reply text is empty.', 'error');
-    if (confirm(`Post this reply to YouTube?\n\n${text}`)) {
+    if (await askConfirm(`Post this reply to YouTube?\n\n${text}`)) {
       await mutate(`/api/engagement/replies/${encodeURIComponent(replyApprove.dataset.replyApprove)}/approve`, 'POST', { confirmed: true, editedText: text }, 'Reply posted to YouTube.').catch(() => {});
       ui.engagementDetail = null;
       renderEngagement(ui.state?.engagement || {});
@@ -1378,7 +1415,7 @@ document.addEventListener('click', async event => {
   if (proposeShorts) {
     const productionId = proposeShorts.dataset.proposeShorts;
     const replacing = Boolean(document.querySelector('[data-short-card]'));
-    if (replacing && !confirm('Replace the current editable Short drafts? Rendered draft files will remain on disk but their manifest will be replaced.')) return;
+    if (replacing && !await askConfirm('Replace the current editable Short drafts? Rendered draft files will remain on disk but their manifest will be replaced.')) return;
     try {
       await api(`/api/content/${encodeURIComponent(productionId)}/shorts/propose`, {
         method: 'POST', body: JSON.stringify({ count: 3, replace: replacing })
@@ -1411,7 +1448,7 @@ document.addEventListener('click', async event => {
     if (!card || !productionId) return;
     const status = discoverabilityReview.matches('[data-discoverability-dismiss]') ? 'dismissed' : 'accepted';
     const reason = status === 'dismissed'
-      ? (prompt('Why is this finding a false positive? The reason will be retained on future matching audits.') || '')
+      ? (await askText('Why is this finding a false positive? The reason will be retained on future matching audits.') || '')
       : '';
     if (status === 'dismissed' && !reason) return;
     try {
@@ -1447,7 +1484,7 @@ document.addEventListener('click', async event => {
         await refreshContentDialog(productionId, 'Vertical Short rendered locally with mobile captions.');
         return;
       }
-      if (!confirm('Confirm the inherited evidence, media rights, privacy, and publish time for this Short?')) return;
+      if (!await askConfirm('Confirm the inherited evidence, media rights, privacy, and publish time for this Short?')) return;
       await api(`/api/content/${encodeURIComponent(productionId)}/shorts/${encodeURIComponent(clipId)}/approve`, {
         method: 'POST', body: JSON.stringify({ ...values, confirmed: true })
       });
@@ -1493,7 +1530,7 @@ document.addEventListener('click', async event => {
         return;
       }
       if (sceneButton.matches('[data-scene-narration]')) {
-        if (!confirm('Regenerate narration for only this scene? This may consume TTS provider credits; the provider invoice is authoritative.')) return;
+        if (!await askConfirm('Regenerate narration for only this scene? This may consume TTS provider credits; the provider invoice is authoritative.')) return;
         await api(`/api/content/${encodeURIComponent(productionId)}/scenes/${encodeURIComponent(sceneId)}/narration`, {
           method: 'POST', body: JSON.stringify({ confirmCost: true })
         });
@@ -1504,7 +1541,7 @@ document.addEventListener('click', async event => {
       const message = estimate.paid
         ? `Regenerate only this scene with ${estimate.provider} (${estimate.generatedSeconds}s). This consumes provider credits; the provider invoice is authoritative. Continue?`
         : 'Regenerate only this scene with the configured image provider? A live image request may consume provider credits. Continue?';
-      if (!confirm(message)) return;
+      if (!await askConfirm(message)) return;
       await api(`/api/content/${encodeURIComponent(productionId)}/scenes/${encodeURIComponent(sceneId)}/regenerate`, {
         method: 'POST', body: JSON.stringify({ confirmPaid: estimate.paid })
       });
@@ -1522,10 +1559,10 @@ document.addEventListener('click', async event => {
     const enabled = silenceAction.matches('[data-intentional-silence]');
     let reason = '';
     if (enabled) {
-      reason = prompt('Why is this production intentionally silent? This reason is stored with the approval evidence.') || '';
+      reason = await askText('Why is this production intentionally silent? This reason is stored with the approval evidence.') || '';
       if (!reason) return;
-      if (!confirm('Confirm that this production is intentionally silent. Captions and visuals will remain, and approval will record this override.')) return;
-    } else if (!confirm('Require narration again? Approval will be blocked until missing scene narration is regenerated and the video is rebuilt.')) {
+      if (!await askConfirm('Confirm that this production is intentionally silent. Captions and visuals will remain, and approval will record this override.')) return;
+    } else if (!await askConfirm('Require narration again? Approval will be blocked until missing scene narration is regenerated and the video is rebuilt.')) {
       return;
     }
     try {
@@ -1542,7 +1579,7 @@ document.addEventListener('click', async event => {
   const rebuildScenes = event.target.closest('[data-rebuild-scenes]');
   if (rebuildScenes) {
     const productionId = rebuildScenes.dataset.rebuildScenes;
-    if (confirm('Rebuild a new final MP4 from the current scene timeline? The previous final video will be preserved.')) {
+    if (await askConfirm('Rebuild a new final MP4 from the current scene timeline? The previous final video will be preserved.')) {
       try {
         await api(`/api/content/${encodeURIComponent(productionId)}/scenes/rebuild`, { method: 'POST', body: '{}' });
         await refreshContentDialog(productionId, 'Final video rebuilt from the repaired timeline. Review it before approval.');
@@ -1612,7 +1649,7 @@ document.addEventListener('click', async event => {
 
   const publishNow = event.target.closest('[data-publish-now-content]');
   if (publishNow) {
-    if (!confirm('Publish this video to YouTube now using the selected privacy setting?')) return;
+    if (!await askConfirm('Publish this video to YouTube now using the selected privacy setting?')) return;
     try {
       await mutate(`/api/content/${encodeURIComponent(publishNow.dataset.publishNowContent)}/publish-now`, 'POST', {}, 'Content published.');
       $('#content-dialog').close();
@@ -1622,7 +1659,7 @@ document.addEventListener('click', async event => {
 
   const deleteSchedule = event.target.closest('[data-delete-schedule]');
   if (deleteSchedule) {
-    if (!confirm('Delete this schedule entry? The generated content and assets will be kept.')) return;
+    if (!await askConfirm('Delete this schedule entry? The generated content and assets will be kept.')) return;
     try {
       await mutate(`/api/content/${encodeURIComponent(deleteSchedule.dataset.deleteSchedule)}/schedule`, 'DELETE', undefined, 'Schedule deleted; generated content was kept.');
       await openContent(deleteSchedule.dataset.deleteSchedule);
@@ -1632,7 +1669,7 @@ document.addEventListener('click', async event => {
 
   const reject = event.target.closest('[data-reject-content]');
   if (reject) {
-    const notes = prompt('Why are you rejecting this content?', 'Needs a different angle');
+    const notes = await askText('Why are you rejecting this content?', 'Needs a different angle');
     if (notes !== null) {
       await mutate(`/api/content/${encodeURIComponent(reject.dataset.rejectContent)}/reject`, 'POST', { notes }, 'Content rejected.').catch(() => {});
       $('#content-dialog').close();
@@ -1640,7 +1677,7 @@ document.addEventListener('click', async event => {
   }
 
   const retry = event.target.closest('[data-retry-content]');
-  if (retry && confirm('Generate a fresh version using the same topic?')) {
+  if (retry && await askConfirm('Generate a fresh version using the same topic?')) {
     await mutate(`/api/content/${encodeURIComponent(retry.dataset.retryContent)}/retry`, 'POST', {}, 'Regeneration started.').catch(() => {});
     $('#content-dialog').close();
   }
@@ -1740,14 +1777,14 @@ $('#pause-operator-button').addEventListener('click', async () => {
 
 $('#cancel-operator-run').addEventListener('click', async event => {
   const runId = event.currentTarget.dataset.runId;
-  if (runId && confirm('Stop this autonomous run after the current agent stage?')) {
+  if (runId && await askConfirm('Stop this autonomous run after the current agent stage?')) {
     await mutate(`/api/operator/runs/${encodeURIComponent(runId)}/cancel`, 'POST', {}, 'Operator stop requested.').catch(() => {});
   }
 });
 
 $('#resume-operator-run').addEventListener('click', async event => {
   const runId = event.currentTarget.dataset.runId;
-  if (runId && confirm('Resume this operator run from its saved editorial plan and generation checkpoints?')) {
+  if (runId && await askConfirm('Resume this operator run from its saved editorial plan and generation checkpoints?')) {
     await mutate(`/api/operator/runs/${encodeURIComponent(runId)}/resume`, 'POST', {}, 'Autonomous operator resumed.').catch(() => {});
   }
 });
@@ -1790,8 +1827,8 @@ $('#profile-form').addEventListener('submit', async event => {
   } catch (_error) { /* toast already shown */ }
 });
 
-$('#api-key-button').addEventListener('click', () => {
-  if (requestApiKey() !== null) showToast('Dashboard API key saved in this browser.');
+$('#api-key-button').addEventListener('click', async () => {
+  if ((await requestApiKey()) !== null) showToast('Dashboard API key saved in this browser.');
 });
 
 const initialView = location.hash.slice(1);
