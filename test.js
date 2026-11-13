@@ -3927,6 +3927,11 @@ class SystemTest {
     };
     const settings = { ...(await service.settings()), stockClipSeconds: 8, resolution: '720p' };
     const result = await service.generateStockClips({ provider, script, outputDir, productionId: 'prod_test', targetDuration: 60, settings });
+    const weights = service.sceneTexts({
+      hook: { text: 'one two three' },
+      mainContent: { sections: [{ title: 'Long', content: ['a b c d e f', 'g h i j k l'] }] }
+    });
+    if (weights[1].weight !== 12) throw new Error(`Paragraph-array sections must be weighted by their words, got ${weights[1].weight}`);
     const total = result.clips.reduce((sum, clip) => sum + clip.duration, 0);
     if (Math.abs(total - 60) > 1) throw new Error(`Stock clips should cover the narration (60s), got ${total}s`);
     if (searches[0] !== 'stormy sea lighthouse') throw new Error('AI search phrase was not used');

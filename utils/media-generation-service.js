@@ -53,12 +53,17 @@ class MediaGenerationService {
       scenes.push({ label: 'Hook', text: script.hook?.text || script.title });
     }
     for (const section of script.mainContent?.sections || []) {
+      // Section text arrives as a string, an array of paragraphs (AI and imported scripts),
+      // or structured steps/items. Weight must count the narrated words, not just the title.
       const detail = typeof section.content === 'string'
         ? section.content
-        : (section.items || section.steps || []).map(item => `${item.title || ''} ${item.description || ''}`).join(' ');
-      scenes.push({ label: section.title || 'Scene', text: `${section.title || ''}. ${detail}`.trim() });
+        : Array.isArray(section.content)
+          ? section.content.filter(line => typeof line === 'string' && !line.startsWith('[')).join(' ')
+          : (section.items || section.steps || []).map(item => `${item.title || ''} ${item.description || ''}`).join(' ');
+      scenes.push({ label: section.title || 'Scene', text: detail.trim() || section.title || 'Scene' });
     }
-    if (script.conclusion?.finalThought) scenes.push({ label: 'Conclusion', text: script.conclusion.finalThought });
+    const closing = [script.conclusion?.finalThought, script.callToAction?.subscribe].filter(Boolean).join(' ');
+    if (closing) scenes.push({ label: 'Conclusion', text: closing });
     return scenes.map(scene => ({ ...scene, weight: Math.max(1, scene.text.split(/\s+/).length) }));
   }
 
