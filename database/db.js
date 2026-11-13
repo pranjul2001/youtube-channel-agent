@@ -5,7 +5,8 @@ const { Logger } = require('../utils/logger');
 
 class Database {
   constructor() {
-    this.dbPath = path.join(__dirname, '..', 'data', 'youtube_automation.db');
+    // YAA_DB_PATH lets the test suite use a throwaway database instead of live channel data.
+    this.dbPath = process.env.YAA_DB_PATH || path.join(__dirname, '..', 'data', 'youtube_automation.db');
     this.db = null;
     this.logger = new Logger('Database');
   }

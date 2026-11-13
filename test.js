@@ -1,3 +1,10 @@
+// Never run the suite against live channel data: default to a fresh throwaway database.
+if (!process.env.YAA_DB_PATH) {
+  const os = require('os');
+  const fsSync = require('fs');
+  const tempDir = fsSync.mkdtempSync(require('path').join(os.tmpdir(), 'yaa-test-'));
+  process.env.YAA_DB_PATH = require('path').join(tempDir, 'test.db');
+}
 const { Database } = require('./database/db');
 const { Logger } = require('./utils/logger');
 const { CredentialManager } = require('./utils/credential-manager');
