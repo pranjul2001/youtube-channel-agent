@@ -4010,6 +4010,23 @@ class SystemTest {
     if (!once.includes('AI-assisted') || !once.includes('Video by Ben on Pexels')) throw new Error('Disclosure or credit line missing');
     if (/[<>]/.test(once)) throw new Error('YouTube rejects angle brackets in descriptions');
     if (once.split(CREDITS_MARKER).length !== 2) throw new Error('Exactly one credits block expected');
+    const { chaptersFromScenes } = require('./utils/description-credits');
+    const chapters = chaptersFromScenes([
+      { label: 'Hook', duration: 30 }, { label: 'The place', duration: 20 }, { label: 'The place', duration: 17 },
+      { label: 'Tiny', duration: 4 }, { label: 'Conclusion', duration: 28 }
+    ]);
+    if (chapters.join('|') !== '0:00 Intro|0:30 The place|1:11 Closing') throw new Error(`Unexpected chapters: ${chapters.join('|')}`);
+    const withAiStamps = 'Intro text.\n\n0:00 Introduction\n10:30 Conclusion\nMore text.';
+    const real = applyCreditsToDescription(withAiStamps, {
+      credits, aiNarration: true, chapters,
+      sources: [{ url: 'https://example.org/a', title: 'Archive record', publisher: 'National Records' }]
+    });
+    if (real.includes('10:30') || !real.includes('0:30 The place') || !real.includes('Archive record (National Records): https://example.org/a')) {
+      throw new Error('AI timestamps must be replaced by real chapters and sources listed');
+    }
+    if (applyCreditsToDescription(real, { credits, aiNarration: true, chapters, sources: [{ url: 'https://example.org/a', title: 'Archive record', publisher: 'National Records' }] }) !== real) {
+      throw new Error('Chapters/sources blocks must not stack on re-apply');
+    }
     const many = Array.from({ length: 400 }, (_, index) => ({ photographer: `Videographer ${index}`, videoUrl: `https://www.pexels.com/video/${index}/`, videoId: index }));
     const long = applyCreditsToDescription('x'.repeat(3000), { credits: many, aiNarration: true });
     if (long.length > 5000 || !long.includes('more videographers on Pexels')) throw new Error('Long credit lists must fit YouTube\'s 5000-character limit');

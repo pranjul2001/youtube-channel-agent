@@ -3,7 +3,7 @@ const fs = require('fs').promises;
 const { Logger } = require('../utils/logger');
 const { AIVideoGenerator } = require('../utils/ai-video-generator');
 const { SceneRepairService } = require('../utils/scene-repair-service');
-const { applyCreditsToDescription } = require('../utils/description-credits');
+const { applyCreditsToDescription, chaptersFromScenes } = require('../utils/description-credits');
 
 class ProductionManagementAgent {
   constructor(db, credentials) {
@@ -646,7 +646,10 @@ class ProductionManagementAgent {
       if (productionData.seo) {
         productionData.seo.description = applyCreditsToDescription(productionData.seo.description, {
           credits: videoResult.credits || [],
-          aiNarration: Boolean(narrationProvider && narrationProvider !== 'simulation')
+          aiNarration: Boolean(narrationProvider && narrationProvider !== 'simulation'),
+          // Real chapters from the rendered timeline replace any AI-guessed timestamps.
+          chapters: chaptersFromScenes(videoResult.scenes || []),
+          sources: productionData.strategy?.researchSources || []
         });
       }
       

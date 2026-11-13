@@ -42,7 +42,11 @@ class MediaGenerationService {
       resolution: process.env.VIDEO_RESOLUTION || stored.video_resolution || '720p',
       aspectRatio: process.env.VIDEO_ASPECT_RATIO || stored.video_aspect_ratio || '16:9',
       // Stock footage is free, so it is not limited by the paid-seconds cap above.
-      stockClipSeconds: Math.min(15, Math.max(4, Number(process.env.STOCK_CLIP_SECONDS || stored.stock_clip_seconds || 8)))
+      stockClipSeconds: Math.min(15, Math.max(4, Number(process.env.STOCK_CLIP_SECONDS || stored.stock_clip_seconds || 8))),
+      // Reviewer-rejected stock clips (comma-separated source ids) and the channel's visual mood.
+      stockBlocklist: new Set(String(process.env.STOCK_BLOCKLIST || stored.stock_blocklist || '')
+        .split(',').map(value => value.trim()).filter(Boolean)),
+      stockMood: String(process.env.STOCK_MOOD || stored.stock_mood || '').trim().slice(0, 200)
     };
   }
 
@@ -69,13 +73,15 @@ class MediaGenerationService {
 
   // Short stock-library search phrases. Prefers places, objects and nature over people,
   // because the channel bible forbids anything that could read as a real victim.
-  async stockQueries(scenes, script = {}) {
+  async stockQueries(scenes, script = {}, mood = '') {
     const fallback = scenes.map(scene => this.keywordQuery(`${scene.label} ${scene.text}`));
     if (!this.aiText?.isAvailable?.()) return fallback;
     const prompt = `You choose stock-footage search phrases for a documentary video titled "${script.title || ''}".
 For each numbered scene, return ONE search phrase of 2 to 4 plain English words that a stock video library would match.
 Rules: describe places, landscapes, weather, objects, documents, maps or atmosphere. Avoid identifiable people, faces,
 children, brand names, logos, gore and anything a viewer could mistake for real footage of the actual event.
+Avoid anything that breaks the period or place: modern offices, cameras, phones, cities, road signs, visible text,
+tropical or sunny beach scenes.${mood ? `\nEvery phrase must fit this visual mood: ${mood}. Prefer words like the mood's weather and light.` : ''}
 Return ONLY a JSON array of ${scenes.length} strings, in order.
 
 ${scenes.map((scene, index) => `${index + 1}. ${scene.label}: ${scene.text.slice(0, 400)}`).join('\n')}`;
@@ -112,7 +118,8 @@ ${scenes.map((scene, index) => `${index + 1}. ${scene.label}: ${scene.text.slice
     if (!scenes.length) return { clips: [], credits: [] };
     const total = Math.max(settings.stockClipSeconds, Number(targetDuration) || 0);
     const totalWeight = scenes.reduce((sum, scene) => sum + scene.weight, 0);
-    const queries = await this.stockQueries(scenes, script);
+    const queries = await this.stockQueries(scenes, script, settings.stockMood);
+    const blocked = settings.stockBlocklist || new Set();
     const targetWidth = /1080/.test(settings.resolution) ? 1920 : 1280;
     const used = new Set();
     const clips = [];
@@ -126,7 +133,8 @@ ${scenes.map((scene, index) => `${index + 1}. ${scene.label}: ${scene.text.slice
       for (const query of [queries[sceneIndex], this.keywordQuery(script.title || ''), 'ocean landscape']) {
         if (candidates.length >= needed) break;
         const found = await provider.search(query, { perPage: Math.min(40, needed + 10), targetWidth });
-        candidates.push(...found.filter(item => !used.has(item.id) && !candidates.some(c => c.id === item.id))
+        candidates.push(...found.filter(item => !used.has(item.id) && !blocked.has(String(item.id)) &&
+          !candidates.some(c => c.id === item.id))
           .map(item => ({ ...item, query })));
       }
       if (!candidates.length) {
