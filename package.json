@@ -40,7 +40,9 @@
     "replicate": "^1.4.0",
     "sharp": "^0.35.5",
     "sqlite3": "^6.0.1",
-    "winston": "^3.11.0"
+    "topojson-client": "^3.1.0",
+    "winston": "^3.11.0",
+    "world-atlas": "^2.0.2"
   },
   "optionalDependencies": {
     "ffmpeg-static": "^5.2.0"

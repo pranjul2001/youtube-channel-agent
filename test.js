@@ -79,7 +79,11 @@ class SystemTest {
       { name: 'Pixabay Stock Footage', test: () => this.testPixabayStockFootage() },
       { name: 'Description Credits and Disclosure', test: () => this.testDescriptionCredits() },
       { name: 'Narration Provider Selection', test: () => this.testNarrationProviderSelection() },
-      { name: 'Looped Video Stops at Narration Length', test: () => this.testLoopedVideoIsBounded() }
+      { name: 'Looped Video Stops at Narration Length', test: () => this.testLoopedVideoIsBounded() },
+      { name: 'Subtitle Timing From Narration Pauses', test: () => this.testNarrationTiming() },
+      { name: 'Timed Narration Pipeline', test: () => this.testTimedNarrationPipeline() },
+      { name: 'Documentary Visual Plan Stays Grounded', test: () => this.testDocumentaryPlanning() },
+      { name: 'Documentary Render With Burned Subtitles', test: () => this.testDocumentaryRender() }
     ];
 
     let passed = 0;
@@ -3970,6 +3974,189 @@ class SystemTest {
       throw new Error('Expected failure');
     } catch (error) {
       if (error.message.includes('secret-key')) throw new Error('Pixabay key leaked into an error message');
+    }
+  }
+
+  async testNarrationTiming() {
+    const t = require('./utils/narration-timing');
+    const split = t.splitSentences('Mr. J. R. Smith sailed to St. Kilda. It was 3.5 km away! Was it? No. Room No. 7 was empty.');
+    const expected = ['Mr. J. R. Smith sailed to St. Kilda.', 'It was 3.5 km away!', 'Was it?', 'No.', 'Room No. 7 was empty.'];
+    if (JSON.stringify(split) !== JSON.stringify(expected)) throw new Error(`Sentence split wrong: ${JSON.stringify(split)}`);
+
+    const chunks = t.chunkParagraphs([
+      { label: 'Hook', text: 'One two three four five. Six seven eight nine ten.' },
+      { label: 'Part', text: 'Eleven twelve thirteen. Fourteen fifteen sixteen seventeen.' }
+    ], 13);
+    if (chunks.length !== 2 || chunks.some(c => c.words > 13)) throw new Error('Chunks must respect the word limit without splitting sentences');
+    if (chunks[1].sentences[0].label !== 'Part' || !chunks[0].text.includes('.\n\nEleven')) throw new Error('Chunks must keep section labels and paragraph breaks');
+
+    // Three sentences; sentence breaks are the long pauses, commas the short ones.
+    const silences = t.parseSilences([
+      '[silencedetect] silence_start: 0', '[silencedetect] silence_end: 0.3 | silence_duration: 0.3',
+      '[silencedetect] silence_start: 1.0', '[silencedetect] silence_end: 1.2 | silence_duration: 0.2',
+      '[silencedetect] silence_start: 2.4', '[silencedetect] silence_end: 3.0 | silence_duration: 0.6',
+      '[silencedetect] silence_start: 4.1', '[silencedetect] silence_end: 4.3 | silence_duration: 0.2',
+      '[silencedetect] silence_start: 6.0', '[silencedetect] silence_end: 6.7 | silence_duration: 0.7',
+      '[silencedetect] silence_start: 8.0'
+    ].join('\n'));
+    const timed = t.alignSentences([
+      'A short opening, with a comma.', 'The second sentence is a little longer, also with a comma.', 'The end, at last.'
+    ], silences, 8.3);
+    const near = (a, b) => Math.abs(a - b) < 0.01;
+    if (!near(timed[0].start, 0.3) || !near(timed[0].end, 2.4) || !near(timed[1].start, 3.0) || !near(timed[1].end, 6.0) ||
+      !near(timed[2].start, 6.7) || !near(timed[2].end, 8.0)) {
+      throw new Error(`Sentences must align to the long pauses: ${JSON.stringify(timed)}`);
+    }
+
+    const cues = t.buildCues([{ text: 'The Flannan Isles are a tiny group of rocky islands in the Outer Hebrides, roughly twenty miles west of the Isle of Lewis.', start: 1, end: 9 }]);
+    if (cues.length < 2 || cues[0].start !== 1 || Math.abs(cues[cues.length - 1].end - 9) > 0.01) throw new Error('Long sentences must split into cues spanning the sentence');
+    if (cues.some(cue => cue.text.split('\n').length > 2 || cue.text.split('\n').some(line => line.length > 42))) throw new Error('Cues must be at most two lines of 42 characters');
+    const srt = t.toSRT([{ start: 61.5, end: 63.25, text: 'Hello\nthere' }]);
+    if (srt !== '1\n00:01:01,500 --> 00:01:03,250\nHello\nthere\n') throw new Error(`SRT format wrong: ${JSON.stringify(srt)}`);
+    const ass = t.toASS([{ start: 1, end: 2, text: 'A {b}\nC' }]);
+    if (!ass.includes('Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,{\\fad(120,120)}A b\\NC')) throw new Error('ASS dialogue wrong');
+
+    // Captions in production use the measured cues, never fixed guesses.
+    const { ProductionManagementAgent } = require('./agents/production-management-agent');
+    const agent = Object.create(ProductionManagementAgent.prototype);
+    const out = await agent.createSRTCaptions({ assets: { audio: { timing: { cues: [{ start: 2, end: 4.5, text: 'On the night' }] } } } });
+    if (!out.startsWith('1\n00:00:02,000 --> 00:00:04,500\nOn the night')) throw new Error('Captions must come from narration timing');
+  }
+
+  async testTimedNarrationPipeline() {
+    // Stub voice: each sentence is a tone (0.35 s per word) followed by 0.7 s of silence.
+    const { AIVideoGenerator } = require('./utils/ai-video-generator');
+    const { runFFmpeg, getMediaDuration } = require('./utils/ffmpeg');
+    const { splitSentences } = require('./utils/narration-timing');
+    const fsp = require('fs').promises;
+    const os = require('os');
+    const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'yaa-timed-'));
+    const generator = Object.create(AIVideoGenerator.prototype);
+    generator.logger = { info() {}, warn() {}, error() {} };
+    generator.getMediaDuration = getMediaDuration;
+    generator.gemini = {};
+    generator.db = null;
+    const spoken = [];
+    generator.generateGeminiTTS = async (text, out) => {
+      const sentences = splitSentences(text.replace(/\n+/g, ' '));
+      const inputs = [];
+      const labels = [];
+      sentences.forEach((sentence, i) => {
+        const seconds = sentence.split(/\s+/).length * 0.35;
+        spoken.push({ text: sentence, seconds });
+        inputs.push('-f', 'lavfi', '-i', `sine=frequency=330:duration=${seconds}:sample_rate=24000`, '-f', 'lavfi', '-i', 'anullsrc=r=24000:cl=mono:d=0.7');
+        labels.push(`[${i * 2}:a][${i * 2 + 1}:a]`);
+      });
+      await runFFmpeg(['-y', ...inputs, '-filter_complex', `${labels.join('')}concat=n=${sentences.length * 2}:v=0:a=1[a]`, '-map', '[a]', '-ac', '1', out]);
+      return out;
+    };
+    const saved = { provider: process.env.TTS_PROVIDER, models: process.env.GEMINI_TTS_MODELS, words: process.env.NARRATION_CHUNK_WORDS };
+    process.env.TTS_PROVIDER = 'gemini';
+    process.env.GEMINI_TTS_MODELS = 'stub-model';
+    process.env.NARRATION_CHUNK_WORDS = '80';
+    try {
+      const long = 'This sentence carries exactly ten words for the test here.';
+      const paragraphs = [
+        { label: 'Hook', text: `${long} ${long} ${long}` },
+        { label: 'Middle', text: `${long} ${long} ${long} ${long} ${long} ${long}` },
+        { label: 'Conclusion', text: `${long} ${long}` }
+      ];
+      const result = await generator.generateTimedNarration(paragraphs, path.join(dir, 'narration.mp3'));
+      if (result.sentences.length !== 11) throw new Error(`Expected 11 timed sentences, got ${result.sentences.length}`);
+      if (result.model !== 'stub-model') throw new Error('Timed narration must report the voice model used');
+      // Rebuild the true timeline (chunks of 8 and 3 sentences with a 0.7 s gap between chunks).
+      let t = 0;
+      const truth = [];
+      spoken.forEach((item, i) => {
+        if (i === 8) t += 0.7;
+        truth.push({ start: t, end: t + item.seconds });
+        t += item.seconds + 0.7;
+      });
+      result.sentences.forEach((sentence, i) => {
+        if (Math.abs(sentence.start - truth[i].start) > 0.15 || Math.abs(sentence.end - truth[i].end) > 0.15) {
+          throw new Error(`Sentence ${i + 1} timed ${sentence.start}-${sentence.end}, expected ${truth[i].start.toFixed(2)}-${truth[i].end.toFixed(2)}`);
+        }
+      });
+      if (result.sentences[3].label !== 'Middle' || result.sentences[10].label !== 'Conclusion') throw new Error('Timed sentences must keep section labels');
+      if (!result.cues.length || Math.abs(result.duration - t) > 0.3) throw new Error(`Narration length ${result.duration} does not match ${t}`);
+    } finally {
+      for (const [key, name] of [['provider', 'TTS_PROVIDER'], ['models', 'GEMINI_TTS_MODELS'], ['words', 'NARRATION_CHUNK_WORDS']]) {
+        if (saved[key] === undefined) delete process.env[name]; else process.env[name] = saved[key];
+      }
+      await fsp.rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  async testDocumentaryPlanning() {
+    const { groupBeats, sanitizePlan, isGrounded } = require('./utils/documentary-renderer');
+    const sentences = [];
+    let t = 0.3;
+    for (const [label, count] of [['Hook', 3], ['The place', 4], ['Closing', 2]]) {
+      for (let i = 0; i < count; i++) {
+        sentences.push({ label, text: `On 26 December 1900 the Hesperus reached the Flannan Isles, sentence ${i}.`, start: t, end: t + 3.2 });
+        t += 3.8;
+      }
+    }
+    const beats = groupBeats(sentences, t + 0.5);
+    if (beats[0].start !== 0 || Math.abs(beats[beats.length - 1].end - (t + 0.5)) > 1e-9) throw new Error('Beats must cover the whole narration');
+    beats.slice(1).forEach((beat, i) => { if (beat.start !== beats[i].end) throw new Error('Beats must be contiguous'); });
+    if (beats.some(beat => new Set(beat.sentences.map(s => s.label)).size > 1)) throw new Error('A beat must not cross a section');
+    if (!beats.find(b => b.label === 'The place').sectionStart) throw new Error('First beat of a section must be marked');
+
+    if (!isGrounded('26 December 1900', 'It reached the island on 26 December 1900.')) throw new Error('Grounded date rejected');
+    if (isGrounded('27 December 1900', 'It reached the island on 26 December 1900.')) throw new Error('Card with a number not in the narration must be rejected');
+    if (isGrounded('Ghost ship sighted', 'The relief ship reached the island.')) throw new Error('Card with words not in the narration must be rejected');
+
+    const raw = { beats: beats.map((beat, i) => ({ i: i + 1, type: 'map', place: 'Flannan Isles', query: 'sea' })) };
+    raw.beats[1] = { i: 2, type: 'card', kicker: 'Invented', headline: 'Three ghosts seen', label: 'Haunted' };
+    raw.beats[2] = { i: 3, type: 'archive', query: 'Flannan Isles lighthouse', source: 'commons', label: 'Flannan Isles' };
+    const plan = sanitizePlan(beats, raw);
+    if (plan.filter(p => p.type === 'map').length !== 1) throw new Error('Only one map per place and per 25 beats');
+    if (plan[1].headline === 'Three ghosts seen' || plan[1].kicker === 'Invented' || plan[1].label) throw new Error('Ungrounded card and label must be dropped');
+    if (!plan.some(p => p.type === 'card' && p.headline === '26 December 1900')) throw new Error('Spoken dates should become date cards');
+    if (plan[2].type !== 'archive' || plan[2].label !== 'Flannan Isles') throw new Error('Grounded archive beat and label must be kept');
+    const people = sanitizePlan(beats.slice(0, 3), { beats: [
+      { i: 1, type: 'stock', query: 'old portrait photo' },
+      { i: 2, type: 'archive', query: 'old steamship photo' },
+      { i: 3, type: 'archive', query: 'Hesperus lighthouse tender' }
+    ] }, { fallbackQuery: 'rough grey sea' });
+    if (people[0].query !== 'rough grey sea') throw new Error('Stock searches for people must be replaced');
+    if (people[1].type === 'archive') throw new Error('Archive searches without a named subject must fall back to stock');
+    if (people[2].type !== 'archive' || people[2].subject.join(' ') !== 'Hesperus') throw new Error('Archive images must be tied to the named subject');
+  }
+
+  async testDocumentaryRender() {
+    const { DocumentaryRenderer } = require('./utils/documentary-renderer');
+    const { runFFmpeg, getMediaDuration } = require('./utils/ffmpeg');
+    const fsp = require('fs').promises;
+    const os = require('os');
+    const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'yaa-doc-'));
+    const audio = path.join(dir, 'narration.mp3');
+    await runFFmpeg(['-y', '-f', 'lavfi', '-i', 'sine=frequency=220:duration=9', '-c:a', 'libmp3lame', audio]);
+    const sentences = [
+      { label: 'Hook', text: 'On the night of December 15, the light went out.', start: 0.2, end: 2.8 },
+      { label: 'The place', text: 'The Flannan Isles lie far out in the Atlantic.', start: 3.2, end: 8.6 }
+    ];
+    const renderer = new DocumentaryRenderer({ logger: { info() {}, warn() {}, error() {} }, cacheDir: path.join(dir, 'cache') });
+    try {
+      const result = await renderer.render({
+        productionId: 'test', script: { title: 'The Vanishing: A Test' }, audioPath: audio, outputPath: path.join(dir, 'out.mp4'),
+        timing: { sentences, cues: [{ start: 0.2, end: 2.8, text: 'On the night of December 15,\nthe light went out.' }] },
+        settings: { burnSubtitles: true }
+      });
+      const seconds = await getMediaDuration(result.path);
+      if (Math.abs(seconds - 9) > 0.3) throw new Error(`Rendered video should match 9s narration, got ${seconds}s`);
+      const sceneTotal = result.scenes.reduce((sum, scene) => sum + scene.duration, 0);
+      if (Math.abs(sceneTotal - 9) > 0.1) throw new Error(`Scenes must add up to the narration, got ${sceneTotal}s`);
+      if (!result.scenes.some(scene => scene.model === 'chapter')) throw new Error('A new section must open with a chapter card');
+      const { getFFmpegPath } = require('./utils/ffmpeg');
+      const { execFile } = require('child_process');
+      const info = await new Promise(resolve => execFile(getFFmpegPath(), ['-hide_banner', '-i', result.path], (_error, _stdout, stderr) => resolve(String(stderr))));
+      const video = /Video: h264.*1920x1080/.test(info) ? { width: 1920, height: 1080 } : null;
+      const probe = { streams: /Audio: aac/.test(info) ? [{ codec_type: 'audio' }] : [] };
+      if (!video || video.width !== 1920 || video.height !== 1080 || !probe.streams.some(s => s.codec_type === 'audio')) throw new Error('Output must be 1080p with audio');
+    } finally {
+      await fsp.rm(dir, { recursive: true, force: true });
     }
   }
 

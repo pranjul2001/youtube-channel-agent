@@ -10,6 +10,14 @@ const CHAPTER_LINE = /^\s*\(?\d{1,2}:\d{2}(?::\d{2})?\)?\s*[-–—:]?\s+\S/;
 const clean = value => String(value || '').replace(/[<>]/g, '').trim();
 
 function creditLine(credit) {
+  if (credit.kind === 'image') {
+    const author = clean(credit.author);
+    const licence = clean(credit.license);
+    return `• Image: ${clean(credit.title) || 'Untitled'}${author ? `, ${author}` : ''}${licence ? ` (${licence})` : ''}, via ${clean(credit.source)}: ${clean(credit.pageUrl)}`;
+  }
+  if (credit.kind === 'data') {
+    return `• ${clean(credit.title)}: ${clean(credit.source)}${credit.license ? ` (${clean(credit.license)})` : ''}: ${clean(credit.pageUrl)}`;
+  }
   const name = clean(credit.photographer) || 'Unknown';
   const page = clean(credit.videoUrl);
   return `• Video by ${name} on ${clean(credit.source) || 'Pexels'}${page ? `: ${page}` : ''}`;
@@ -57,17 +65,28 @@ function buildFooter({ credits = [], aiNarration = false }, maxLength = Infinity
   if (aiNarration) head.push('Narration is AI-assisted (synthetic voice). Script and facts are human-reviewed against the sources listed.');
   if (!credits.length) return head.length > 1 ? head.join('\n') : '';
 
-  const sources = [...new Set(credits.map(credit => clean(credit.source) || 'Pexels'))];
-  head.push(`Stock footage: ${sources.join(' and ')}. Thank you to these videographers:`);
+  // Order: maps and data, archive images, then stock videographers (usually the longest list).
+  const rank = credit => (credit.kind === 'data' ? 0 : credit.kind === 'image' ? 1 : 2);
+  const ordered = [...credits].sort((a, b) => rank(a) - rank(b));
+  const videos = ordered.filter(credit => !credit.kind || credit.kind === 'video');
+  const sources = [...new Set(videos.map(credit => clean(credit.source) || 'Pexels'))];
   const lines = [...head];
-  for (const [index, credit] of credits.entries()) {
+  let videoHeading = false;
+  for (const [index, credit] of ordered.entries()) {
+    const isVideo = !credit.kind || credit.kind === 'video';
+    const extra = [];
+    if (isVideo && !videoHeading) extra.push(`Stock footage: ${sources.join(' and ')}. Thank you to these videographers:`);
     const line = creditLine(credit);
-    const remaining = credits.length - index;
-    const overflow = `• …and ${remaining} more videographers on ${sources.join(' and ')}`;
-    if ([...lines, line].join('\n').length > maxLength) {
-      lines.push(overflow);
+    const remaining = ordered.length - index;
+    if ([...lines, ...extra, line].join('\n').length > maxLength) {
+      const rest = ordered.slice(index);
+      const restSources = [...new Set(rest.map(c => clean(c.source) || 'Pexels'))].join(' and ');
+      lines.push(rest.every(c => !c.kind || c.kind === 'video')
+        ? `• …and ${remaining} more videographers on ${restSources}`
+        : `• …and ${remaining} more credits on ${restSources}`);
       break;
     }
+    if (extra.length) { lines.push(...extra); videoHeading = true; }
     lines.push(line);
   }
   return lines.join('\n');

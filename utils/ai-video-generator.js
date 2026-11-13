@@ -10,6 +10,11 @@ const { MediaGenerationService } = require('./media-generation-service');
 
 const OPENAI_IMAGE_MODEL = 'gpt-image-2';
 
+// Spoken-style direction for Gemini narration (channel voice: calm, gentle, clear).
+const DEFAULT_NARRATION_STYLE = 'Narrate the following for a documentary, as a calm, gentle male storyteller speaking to one listener. ' +
+  'Unhurried, warm and very clear, with natural pauses at full stops and a slightly longer pause between paragraphs. ' +
+  'Relaxed and human, never dramatic, never robotic. Read exactly this text and nothing else:';
+
 // Turns an image provider SDK error into one readable line that leads with the
 // fix when the cause is recognisable. @google/genai puts the raw JSON error
 // body in error.message, which is unreadable on a console.
@@ -229,13 +234,15 @@ class AIVideoGenerator {
     return outputPath;
   }
 
-  async generateGeminiTTS(text, outputPath) {
-    const model = process.env.GEMINI_TTS_MODEL || 'gemini-3.8-flash-tts';
-    const voiceName = process.env.GEMINI_TTS_VOICE || 'Kore';
+  async generateGeminiTTS(text, outputPath, options = {}) {
+    const model = options.model || process.env.GEMINI_TTS_MODEL || 'gemini-3.8-flash-tts';
+    const voiceName = options.voice || process.env.GEMINI_TTS_VOICE || 'Kore';
+    // Gemini TTS follows a spoken-style direction placed before the text to read.
+    const prompt = options.style ? `${options.style.trim()}\n\n${text}` : text;
 
     const response = await this.gemini.models.generateContent({
       model,
-      contents: [{ parts: [{ text }] }],
+      contents: [{ parts: [{ text: prompt }] }],
       config: {
         responseModalities: ['AUDIO'],
         speechConfig: {
@@ -257,8 +264,164 @@ class AIVideoGenerator {
     await runFFmpeg(['-y', '-f', 's16le', '-ar', '24000', '-ac', '1', '-i', pcmPath, outputPath]);
     await fs.unlink(pcmPath).catch(() => {});
 
-    this.logger.info('Gemini TTS generation complete');
+    this.logger.info(`Gemini TTS generation complete (${model}, ${voiceName})`);
     return outputPath;
+  }
+
+  // Video style settings (DB settings, overridable by env): video_style documentary|stock,
+  // burn_subtitles, archive_allow_share_alike, channel_name.
+  async videoStyleSettings() {
+    const stored = this.db?.getAllSettings ? await this.db.getAllSettings().catch(() => ({})) : {};
+    const flag = (value, fallback) => value === undefined || value === null || value === '' ? fallback : !/^(false|0|no|off)$/i.test(String(value));
+    return {
+      style: String(process.env.VIDEO_STYLE || stored.video_style || 'stock').toLowerCase(),
+      burnSubtitles: flag(process.env.BURN_SUBTITLES ?? stored.burn_subtitles, true),
+      allowShareAlike: flag(process.env.ARCHIVE_ALLOW_SHARE_ALIKE ?? stored.archive_allow_share_alike, false),
+      channelName: stored.channel_name || 'Curious Files'
+    };
+  }
+
+  // Narration settings: Gemini voice, spoken-style direction and the model fallback order.
+  // Each Gemini TTS model has its own free daily request quota, so a list keeps narration
+  // working when one model is used up.
+  async narrationSettings() {
+    const stored = this.db?.getAllSettings ? await this.db.getAllSettings().catch(() => ({})) : {};
+    const models = String(process.env.GEMINI_TTS_MODELS || stored.narration_models || process.env.GEMINI_TTS_MODEL ||
+      'gemini-3.1-flash-tts-preview,gemini-3.8-flash-tts,gemini-2.5-flash-preview-tts,gemini-2.5-pro-preview-tts')
+      .split(',').map(value => value.trim()).filter(Boolean);
+    return {
+      voice: process.env.GEMINI_TTS_VOICE || stored.narration_voice || 'Iapetus',
+      style: process.env.NARRATION_STYLE || stored.narration_style || DEFAULT_NARRATION_STYLE,
+      models,
+      chunkWords: Math.min(400, Math.max(80, Number(process.env.NARRATION_CHUNK_WORDS || stored.narration_chunk_words || 230))),
+      paragraphPause: 0.45,
+      chunkPause: 0.7
+    };
+  }
+
+  // Narration with real sentence timings, used for accurate subtitles and sentence-synced
+  // visuals. paragraphs: [{label, text}] in reading order. Writes a mastered MP3 to outputPath
+  // and returns {path, duration, sentences:[{text,label,start,end}], cues:[{start,end,text}]}.
+  async generateTimedNarration(paragraphs, outputPath, options = {}) {
+    const { chunkParagraphs, parseSilences, alignSentences, buildCues } = require('./narration-timing');
+    const settings = { ...(await this.narrationSettings()), ...options };
+    const chunks = chunkParagraphs(paragraphs.filter(p => p && String(p.text || '').trim()), settings.chunkWords);
+    if (!chunks.length) throw new Error('Narration has no text');
+    const workDir = `${outputPath}.parts`;
+    await fs.mkdir(workDir, { recursive: true });
+    const preferred = String(process.env.TTS_PROVIDER || 'auto').trim().toLowerCase();
+    const useGemini = Boolean(this.gemini) && (preferred === 'gemini' || (preferred === 'auto' && !this.elevenLabsApiKey && !this.openai));
+
+    // Synthesize every chunk with one model so the voice stays identical across the video;
+    // if a model fails for good (daily quota), start over on the next model.
+    let rendered = null;
+    let lastError = null;
+    const models = useGemini ? settings.models : [null];
+    for (const model of models) {
+      try {
+        rendered = [];
+        for (const [index, chunk] of chunks.entries()) {
+          const wav = path.join(workDir, `chunk_${String(index).padStart(3, '0')}.wav`);
+          await this.synthesizeNarrationChunk(chunk, wav, { ...settings, model, useGemini });
+          rendered.push(wav);
+        }
+        this.lastNarrationModel = model;
+        break;
+      } catch (error) {
+        lastError = error;
+        rendered = null;
+        if (useGemini) this.logger.warn(`Narration with ${model} failed (${this.shortError(error)}); trying the next voice model`);
+      }
+    }
+    if (!rendered) throw lastError || new Error('Narration failed');
+
+    // Time every sentence inside its chunk, then lay chunks end to end with a short pause.
+    const sentences = [];
+    const concatList = [];
+    let offset = 0;
+    for (const [index, wav] of rendered.entries()) {
+      const duration = await this.getMediaDuration(wav);
+      const { stderr } = await runFFmpeg(['-hide_banner', '-i', wav, '-af', 'silencedetect=noise=-38dB:d=0.18', '-f', 'null', '-']);
+      const timed = alignSentences(chunks[index].sentences, parseSilences(stderr), duration);
+      timed.forEach((item, i) => sentences.push({
+        text: item.text, label: chunks[index].sentences[i].label,
+        start: Number((item.start + offset).toFixed(3)), end: Number((item.end + offset).toFixed(3))
+      }));
+      concatList.push(wav);
+      offset += duration;
+      if (index < rendered.length - 1) {
+        const gap = path.join(workDir, `gap_${index}.wav`);
+        await runFFmpeg(['-y', '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=mono', '-t', String(settings.chunkPause), gap]);
+        concatList.push(gap);
+        offset += settings.chunkPause;
+      }
+    }
+
+    // Master: gentle high-pass, light compression and broadcast loudness (-16 LUFS), 48 kHz.
+    // None of these filters change timing, so the sentence times above stay exact.
+    const listPath = path.join(workDir, 'concat.txt');
+    await fs.writeFile(listPath, concatList.map(file => `file '${file.replace(/'/g, "'\\''")}'`).join('\n'));
+    await runFFmpeg(['-y', '-f', 'concat', '-safe', '0', '-i', listPath,
+      '-af', 'highpass=f=70,acompressor=threshold=-20dB:ratio=2.5:attack=15:release=200,loudnorm=I=-16:TP=-1.5:LRA=11',
+      '-ar', '48000', '-ac', '1', '-c:a', 'libmp3lame', '-b:a', '192k', outputPath]);
+    const duration = await this.getMediaDuration(outputPath);
+    const cues = buildCues(sentences);
+    await fs.rm(workDir, { recursive: true, force: true }).catch(() => {});
+    this.logger.info(`Timed narration ready: ${sentences.length} sentences, ${cues.length} subtitle cues, ${duration.toFixed(1)}s`);
+    return { path: outputPath, duration, sentences, cues, model: this.lastNarrationModel, voice: useGemini ? settings.voice : null };
+  }
+
+  // One chunk to a 48 kHz mono WAV. A result far shorter or longer than the text implies
+  // (voice skipped lines, or read the direction aloud) is retried once.
+  async synthesizeNarrationChunk(chunk, wavPath, settings) {
+    const words = chunk.words || chunk.text.split(/\s+/).length;
+    const raw = wavPath.replace(/\.wav$/, settings.useGemini ? '_raw.wav' : '_raw.mp3');
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        if (settings.useGemini) {
+          await this.withTTSRetry(() => this.generateGeminiTTS(chunk.text, raw, { model: settings.model, voice: settings.voice, style: settings.style }));
+        } else {
+          await this.generateTTSAudio(chunk.text, raw);
+        }
+        await runFFmpeg(['-y', '-i', raw, '-ar', '48000', '-ac', '1', '-c:a', 'pcm_s16le', wavPath]);
+        await fs.unlink(raw).catch(() => {});
+        const seconds = await this.getMediaDuration(wavPath);
+        const wordsPerSecond = words / Math.max(0.1, seconds);
+        if (wordsPerSecond < 1.0 || wordsPerSecond > 4.2) {
+          throw Object.assign(new Error(`chunk pace ${wordsPerSecond.toFixed(2)} words/s looks wrong (${words} words in ${seconds.toFixed(1)}s)`), { retryable: true });
+        }
+        return wavPath;
+      } catch (error) {
+        if (error.retryable !== true || attempt === 3) throw error;
+        this.logger.warn(`Narration chunk retry: ${error.message}`);
+      }
+    }
+    return wavPath;
+  }
+
+  // Retries temporary TTS failures (server busy, per-minute limits). A per-day quota error is
+  // final for this model and is thrown at once so the caller can move to the next model.
+  async withTTSRetry(run, attempts = 4) {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await run();
+      } catch (error) {
+        const text = String(error?.message || error);
+        const daily = /per day|PerDay/i.test(text);
+        const temporary = /\b(429|500|503)\b|RESOURCE_EXHAUSTED|UNAVAILABLE|overloaded|high demand|ECONNRESET|ETIMEDOUT|socket hang up/i.test(text);
+        if (daily || !temporary || attempt >= attempts) throw error;
+        const hinted = Number((text.match(/retry in ([\d.]+)s/i) || [])[1]);
+        const wait = Math.min(75, Number.isFinite(hinted) && hinted > 0 ? hinted + 1 : 8 * attempt);
+        this.logger.warn(`TTS busy (${this.shortError(error)}); retrying in ${Math.round(wait)}s`);
+        await new Promise(resolve => setTimeout(resolve, wait * 1000));
+      }
+    }
+  }
+
+  shortError(error) {
+    const text = String(error?.message || error);
+    const m = text.match(/"message":"([^"]{0,140})/);
+    return (m ? m[1] : text).replace(/\s+/g, ' ').slice(0, 140);
   }
 
   async generateVisualAssets(prompt, style = "ethereal", count = 1) {
@@ -420,6 +583,27 @@ class AIVideoGenerator {
     this.logger.info('Generating video from assets...');
     this.lastVideoResult = null;
     try {
+      // Motion-documentary style: visuals cut on the narration's real sentence timings, with
+      // maps, archive images, cards and burned-in subtitles. Needs timed narration.
+      const style = await this.videoStyleSettings();
+      if (style.style === 'documentary' && options.timing?.sentences?.length && this.mediaGeneration) {
+        const { DocumentaryRenderer } = require('./documentary-renderer');
+        const renderer = new DocumentaryRenderer({ aiText: this.mediaGeneration.aiText, mediaGeneration: this.mediaGeneration, logger: this.logger });
+        const stockSettings = await this.mediaGeneration.settings();
+        const result = await renderer.render({
+          productionId: options.productionId, script, timing: options.timing, audioPath, outputPath,
+          settings: { ...style, mood: stockSettings.stockMood }
+        });
+        this.lastVideoResult = {
+          requestedProvider: 'documentary', actualProvider: 'documentary', model: 'local-ffmpeg', mode: 'documentary',
+          realFootage: true, credits: result.credits, generatedSeconds: 0, stockSeconds: result.stockSeconds,
+          subtitlesBurned: style.burnSubtitles !== false, visualCounts: result.counts,
+          tasks: result.scenes.map(scene => ({ scene: scene.index, taskId: scene.taskId, provider: scene.provider, model: scene.model })),
+          scenes: result.scenes
+        };
+        return result.path;
+      }
+
       if (this.mediaGeneration && options.productionId) {
         // Size the visuals to the real narration when we can measure it.
         let narrationSeconds = null;
