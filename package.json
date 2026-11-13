@@ -19,7 +19,8 @@
     "agent:publishing": "node agents/publishing-scheduling-agent.js",
     "agent:analytics": "node agents/analytics-optimization-agent.js",
     "credentials:setup": "node utils/credential-manager.js setup",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test:offline": "GEMINI_API_KEY= API_KEY= OPENAI_API_KEY= node test.js"
   },
   "dependencies": {
     "@google-cloud/local-auth": "^3.0.0",
@@ -37,8 +38,8 @@
     "openai": "^6.0.0",
     "playwright": "^1.54.2",
     "replicate": "^1.4.0",
-    "sharp": "^0.34.5",
-    "sqlite3": "^5.1.6",
+    "sharp": "^0.35.5",
+    "sqlite3": "^6.0.1",
     "winston": "^3.11.0"
   },
   "optionalDependencies": {
@@ -51,5 +52,10 @@
   },
   "engines": {
     "node": ">=18.17.0"
+  },
+  "overrides": {
+    "node-cron": {
+      "uuid": "^11.1.1"
+    }
   }
 }

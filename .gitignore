@@ -91,3 +91,9 @@ data/thumbnails/
 
 # Claude worktrees
 .claude/worktrees/
+
+# Hardening (channel build): any env variant, keys, output
+.env.*
+!.env.example
+*.key
+output/
