@@ -23,7 +23,8 @@ function splitSentences(text) {
     const next = parts[index + 1] || '';
     // "No." is only an abbreviation before a number ("No. 7"); otherwise it ends a sentence.
     const known = bare === 'no' ? /^\d/.test(next) : ABBREVIATIONS.has(bare);
-    const isAbbreviation = known || /^[A-Za-z]$/.test(bare) || /^([A-Za-z]\.){2,}$/.test(lastWord);
+    // Initialisms such as "U.S." or "J.R." (lastWord drops the final dot, so add it back).
+    const isAbbreviation = known || /^[A-Za-z]$/.test(bare) || /^([A-Za-z]\.){2,}$/.test(`${lastWord}.`);
     if (!isAbbreviation) {
       sentences.push(current.trim());
       current = '';

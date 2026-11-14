@@ -4341,6 +4341,18 @@ class SystemTest {
       if (made[1] !== 'Top topic') throw new Error(`With no pick, the top topic must be made, got ${made[1]}`);
       const statuses = await db.getAllRows("SELECT topic, status FROM content_ideas ORDER BY rank");
       if (statuses.map(row => row.status).join() !== 'generated,shortlist,generated') throw new Error(`Idea statuses wrong: ${JSON.stringify(statuses)}`);
+      // Restart in the middle of a build: the topic must not stay "generating" forever.
+      const finished = await db.createGenerationJob({ topic: 't', style: 'story', length: 'medium', source: 'manual', strategyContext: {} });
+      await db.updateGenerationJob(finished.id, { status: 'completed', productionId: 'prod_done' });
+      const stuck = await db.createContentIdea({ topic: 'Stuck topic', status: 'generating', tag: 'Wildcard', rank: 9, batch: '2026-11-14', wikipedia: 'x' });
+      await db.updateContentIdea(stuck.id, { jobId: finished.id });
+      const orphan = await db.createContentIdea({ topic: 'Never started', status: 'generating', tag: 'Wildcard', rank: 10, batch: '2026-11-14', wikipedia: 'y' });
+      await service.reconcile();
+      const after = Object.fromEntries((await db.getAllRows('SELECT id, status FROM content_ideas')).map(row => [row.id, row.status]));
+      if (after[stuck.id] !== 'generated' || after[orphan.id] !== 'picked') throw new Error(`Restart recovery wrong: ${after[stuck.id]}, ${after[orphan.id]}`);
+      const first = require('./utils/narration-timing').splitSentences('A U.S. Navy aircraft found it. It lay deep.');
+      if (first[0] !== 'A U.S. Navy aircraft found it.') throw new Error('"U.S." must not end a sentence before a name');
+
       const source = require('fs').readFileSync(require.resolve('./utils/daily-video-service'), 'utf8');
       if (/publish-now|publishNow|uploadToYouTube/.test(source)) throw new Error('The daily service must never publish');
     } finally {

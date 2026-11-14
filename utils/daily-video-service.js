@@ -107,8 +107,59 @@ class DailyVideoService {
     return this.now().getTime() - new Date(settings.curatedAt).getTime() > settings.refreshDays * 86400000;
   }
 
+  // After a restart mid-build the in-memory wait is gone. Bring topics still marked "generating"
+  // in line with what their job actually did: finished -> ready (fact-check desk filled from the
+  // saved check), stopped -> resumed once, never started -> back to the list.
+  async reconcile() {
+    if (this.running) return;
+    const stuck = await this.db.getAllRows("SELECT * FROM content_ideas WHERE status = 'generating' AND batch IS NOT NULL");
+    for (const idea of stuck) {
+      const job = idea.job_id ? await this.db.getGenerationJob(idea.job_id) : null;
+      if (!job) {
+        await this.db.updateContentIdea(idea.id, { status: 'picked' });
+        continue;
+      }
+      if (['completed', 'completed_with_issues'].includes(job.status) && job.production_id) {
+        try {
+          const checkPath = await this.db.getSetting(`daily_check_${job.id}`);
+          const bundle = checkPath ? JSON.parse(await fs.readFile(checkPath, 'utf8')) : null;
+          const review = await this.db.getRow('SELECT status FROM content_reviews WHERE production_id = ?', [job.production_id]);
+          if (bundle && this.fillEvidence && review && !['approved', 'rejected'].includes(review.status)) {
+            await this.fillEvidence(job.production_id, bundle.report, bundle.sources);
+          }
+        } catch (error) {
+          this.logger.warn(`Fact-check desk could not be restored for "${idea.topic}": ${error.message}`);
+        }
+        await this.db.updateContentIdea(idea.id, { status: 'generated' });
+        await this.notify('success', 'Daily video is ready for review', `"${idea.topic}" is in the review queue.`);
+        this.logger.info(`Recovered finished daily video: "${idea.topic}"`);
+      } else if (['failed', 'interrupted'].includes(job.status)) {
+        const resumed = await this.db.getSetting(`daily_resumed_${job.id}`);
+        if (resumed === 'true') {
+          await this.db.updateContentIdea(idea.id, { status: 'failed' });
+          await this.db.setSetting('daily_last_error', `Production ${job.status}: ${job.error || 'no details'}`.slice(0, 400));
+          continue;
+        }
+        await this.db.setSetting(`daily_resumed_${job.id}`, 'true');
+        this.logger.info(`Resuming interrupted daily video: "${idea.topic}"`);
+        progress.start('video', idea.topic, 'Resuming after a restart');
+        this.running = (async () => {
+          try {
+            await this.resumeJob(job.id);
+            await this.waitForJob(job.id);
+          } finally {
+            this.running = null;
+          }
+          await this.reconcile();
+        })().catch(error => this.logger.warn(`Resume failed: ${error.message}`));
+        return;
+      }
+    }
+  }
+
   // Called every few minutes. Safe to call at any time.
   async tick() {
+    await this.reconcile().catch(error => this.logger.warn(`Daily video recovery failed: ${error.message}`));
     const settings = await this.settings();
     if (!settings.enabled) return { skipped: 'disabled' };
     if (!this.refreshing && await this.shortlistIsStale(settings)) {
@@ -160,10 +211,13 @@ class DailyVideoService {
       await fs.mkdir(this.scriptsDir, { recursive: true });
       const scriptPath = path.join(this.scriptsDir, `${date}-${slugify(written.script.title)}.md`);
       await fs.writeFile(scriptPath, written.markdown);
+      // Kept so the fact-check desk can still be filled if the app restarts during the build.
+      await fs.writeFile(scriptPath.replace(/\.md$/, '.check.json'), JSON.stringify({ report: written.report, sources: written.sources.map(({ key, title, url }) => ({ key, title, url })) }));
       this.logger.info(`Script written (${written.report.words} words, ${written.report.failedClaims.length} claim(s) and ${written.report.unknownNumbers.length} number(s) need review): ${scriptPath}`);
 
       const imported = await this.importScript(written.markdown, { sourceFile: path.basename(scriptPath), keywords: written.script.keywords }, this.db);
       await this.db.updateContentIdea(idea.id, { jobId: imported.jobId });
+      await this.db.setSetting(`daily_check_${imported.jobId}`, scriptPath.replace(/\.md$/, '.check.json'));
       await this.resumeJob(imported.jobId);
       const job = await this.waitForJob(imported.jobId);
       if (!job.production_id || !['completed', 'completed_with_issues'].includes(job.status)) {
