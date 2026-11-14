@@ -87,7 +87,8 @@ class SystemTest {
       { name: 'Clip Vetting and Honest Thumbnails', test: () => this.testClipVettingAndThumbnails() },
       { name: 'Topic Shortlist Follows the Channel Bible', test: () => this.testTopicCurator() },
       { name: 'Automatic Script Is Checked Against Its Sources', test: () => this.testDocumentaryScriptWriter() },
-      { name: 'Daily Video Builds Once a Day and Never Publishes', test: () => this.testDailyVideoService() }
+      { name: 'Daily Video Builds Once a Day and Never Publishes', test: () => this.testDailyVideoService() },
+      { name: 'Live Progress Tracker', test: () => this.testProgressTracker() }
     ];
 
     let passed = 0;
@@ -4346,6 +4347,34 @@ class SystemTest {
       await db.close?.();
       await fsp.rm(dir, { recursive: true, force: true });
     }
+  }
+
+  async testProgressTracker() {
+    const { ProgressTracker } = require('./utils/progress-tracker');
+    let now = 1000000;
+    const tracker = new ProgressTracker(() => now);
+    if (tracker.list().length) throw new Error('No tasks expected at start');
+    tracker.update('video', { step: 'voice' }); // nothing running: ignored
+    tracker.start('video', 'The Eddystone Light');
+    tracker.update('video', { step: 'voice', fraction: 0.5, detail: 'Recording part 2 of 4' });
+    let [task] = tracker.list();
+    if (task.status !== 'running' || task.percent !== 28 || task.steps.map(s => s.state).join() !== 'done,done,current,todo,todo') {
+      throw new Error(`Voice half done should be 28% with two finished steps: ${JSON.stringify(task)}`);
+    }
+    tracker.update('video', { step: 'script', fraction: 0.2 }); // late event from an earlier step
+    if (tracker.list()[0].steps[2].state !== 'current') throw new Error('Progress must never move backwards');
+    tracker.update('video', { step: 'visuals', fraction: 1 });
+    now += 65000;
+    [task] = tracker.list();
+    if (task.percent !== 85 || task.elapsedSeconds !== 65 || task.detail !== '') throw new Error(`Visuals done should be 85% after 65s: ${JSON.stringify(task)}`);
+    tracker.finish('video', 'Ready for your review');
+    tracker.start('publish', 'Upload');
+    tracker.fail('publish', 'network down');
+    const list = tracker.list();
+    if (list.find(t => t.id === 'video').percent !== 100 || list.find(t => t.id === 'publish').status !== 'failed') throw new Error('Finished and failed tasks must be reported');
+    now += 16 * 60 * 1000;
+    if (tracker.list().length) throw new Error('Finished tasks must disappear after a while');
+    if (tracker.ensure('video', 'A').startedAt !== tracker.ensure('video', 'B').startedAt) throw new Error('ensure must not restart a running task');
   }
 
   async testLoopedVideoIsBounded() {

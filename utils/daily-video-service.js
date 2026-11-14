@@ -8,6 +8,7 @@
 // The clock is checked every few minutes instead of with a one-shot timer, so a machine that
 // was asleep or restarted at the build time still makes the day's video when it wakes.
 const fs = require('fs').promises;
+const { progress } = require('./progress-tracker');
 const path = require('path');
 const { Logger } = require('./logger');
 const { slugify } = require('./documentary-script-writer');
@@ -147,11 +148,13 @@ class DailyVideoService {
     await this.db.setSetting('daily_attempts', String(attempt), 'Daily build attempts for that date');
     await this.db.setSetting('daily_last_error', '', 'Why the last daily build failed, if it did');
     let idea = null;
+    progress.start('video', 'Daily video', 'Choosing the topic');
     try {
       idea = await this.chooseIdea(date);
       if (!idea) throw new Error('No topic available: the shortlist is empty and could not be refreshed');
       this.logger.info(`Daily video ${date}: "${idea.topic}" (${idea.status === 'picked' ? 'picked by owner' : 'top of the shortlist'})`);
       await this.db.updateContentIdea(idea.id, { status: 'generating', scheduledFor: date });
+      progress.update('video', { title: idea.topic, step: 'script' });
 
       const written = await this.writer.write({ topic: idea.topic, angle: idea.angle, tag: idea.tag, wikipedia: idea.wikipedia });
       await fs.mkdir(this.scriptsDir, { recursive: true });
@@ -171,11 +174,13 @@ class DailyVideoService {
           .catch(error => this.logger.warn(`Fact-check desk could not be filled automatically: ${error.message}`));
       }
       await this.db.updateContentIdea(idea.id, { status: 'generated' });
+      progress.finish('video', 'Ready for your review');
       const open = written.report.failedClaims.length + written.report.unknownNumbers.length;
       await this.notify('success', 'Daily video is ready for review',
         `"${written.script.title}" is in the review queue.${open ? ` ${open} fact(s) need your check.` : ' All checked facts matched the sources.'}`);
       return { productionId: job.production_id, scriptPath, title: written.script.title };
     } catch (error) {
+      progress.fail('video', error.message);
       await this.db.setSetting('daily_last_error', String(error.message).slice(0, 400));
       if (idea) await this.db.updateContentIdea(idea.id, { status: attempt >= 2 ? 'failed' : 'picked', scheduledFor: date }).catch(() => {});
       await this.notify('error', 'Daily video could not be made', String(error.message).slice(0, 300));

@@ -1260,6 +1260,7 @@ class YouTubeAutomationAgent {
         return res.status(error.status || 500).json({ success: false, error: error.message });
       }
     };
+    this.app.get('/api/progress', (_req, res) => res.json({ success: true, result: require('./utils/progress-tracker').progress.list() }));
     this.app.get('/api/topics', daily(() => this.dailyVideo.listTopics()));
     this.app.post('/api/topics/refresh', protect, daily(async () => {
       this.dailyVideo.refreshTopics().catch(error => this.logger.warn(`Topic refresh failed: ${error.message}`));

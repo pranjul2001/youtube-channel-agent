@@ -8,6 +8,7 @@
 // Output is the same Markdown format as hand-written approved scripts, so production uses
 // the one import path that the end-to-end check covers.
 const axios = require('axios');
+const { progress } = require('./progress-tracker');
 const { Logger } = require('./logger');
 const { generateTextWithRetry } = require('./ai-retry');
 
@@ -177,11 +178,13 @@ ${sources.map(source => `[${source.key}] ${source.title} (Wikipedia) ${source.ur
 
   async write(topic) {
     if (!this.aiText?.isAvailable?.()) throw new Error('AI text provider is required to write scripts');
+    progress.update('video', { step: 'script', fraction: 0.05, detail: 'Reading the sources' });
     const sources = await this.research(topic);
     let script = null;
     let report = null;
     let fixes = '';
     for (let attempt = 1; attempt <= 3; attempt++) {
+      progress.update('video', { step: 'script', fraction: 0.15 + 0.28 * (attempt - 1), detail: attempt === 1 ? 'Writing the script' : `Improving the script (draft ${attempt} of 3)` });
       const raw = await generateTextWithRetry(this.aiText, this.prompt(topic, sources, fixes), { maxTokens: 7000, temperature: attempt === 1 ? 0.6 : 0.4, logger: this.logger });
       let candidate;
       try {

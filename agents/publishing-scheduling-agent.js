@@ -1,4 +1,5 @@
 const { google } = require('googleapis');
+const { progress } = require('../utils/progress-tracker');
 const fs = require('fs').promises;
 const fsSync = require('fs');
 const path = require('path');
@@ -227,14 +228,27 @@ class PublishingSchedulingAgent {
     
     // Resolve the file before marking the network upload as attempted.
     const videoStream = await this.getVideoStream(metadata.video.path);
+    const videoBytes = (await fs.stat(metadata.video.path).catch(() => ({ size: 1 }))).size || 1;
+    progress.start('publish', safeMetadata.title, `Uploading as ${videoMetadata.status.privacyStatus}`);
     scheduleEntry.uploadAttempted = true;
-    const videoUpload = await this.youtube.videos.insert({
-      part: 'snippet,status',
-      requestBody: videoMetadata,
-      media: {
-        body: videoStream
-      }
-    });
+    let videoUpload;
+    try {
+      videoUpload = await this.youtube.videos.insert({
+        part: 'snippet,status',
+        requestBody: videoMetadata,
+        media: {
+          body: videoStream
+        }
+      }, {
+        onUploadProgress: event => progress.update('publish', {
+          fraction: Math.min(1, event.bytesRead / videoBytes),
+          detail: `${Math.round(event.bytesRead / 1048576)} of ${Math.round(videoBytes / 1048576)} MB uploaded (${videoMetadata.status.privacyStatus})`
+        })
+      });
+    } catch (error) {
+      progress.fail('publish', error.message);
+      throw error;
+    }
     
     const videoId = videoUpload.data.id;
     this.logger.info(`Video uploaded with ID: ${videoId}`);
@@ -249,14 +263,17 @@ class PublishingSchedulingAgent {
     const thumb = metadata.thumbnail;
     const standIn = !thumb?.path || thumb.placeholder === true || thumb.simulated === true || /\.(info|placeholder)$/i.test(thumb.path);
     if (standIn && thumb?.path) this.logger.warn('Skipping thumbnail upload: only a placeholder thumbnail exists');
+    progress.update('publish', { step: 'thumbnail', detail: standIn ? 'No custom thumbnail' : 'Setting the thumbnail' });
     if (!standIn) {
       await this.uploadThumbnail(videoId, thumb.path);
     }
     
     // Upload captions
+    progress.update('publish', { step: 'captions', detail: 'Adding captions' });
     if (metadata.captions && metadata.captions.path) {
       await this.uploadCaptions(videoId, metadata.captions.path);
     }
+    progress.finish('publish', `On YouTube as ${videoMetadata.status.privacyStatus}: ${scheduleEntry.youtubeUrl}`);
     
     return videoUpload.data;
   }

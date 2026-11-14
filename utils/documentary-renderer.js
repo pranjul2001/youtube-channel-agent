@@ -10,6 +10,7 @@
 // plus chapter title cards and small on-screen labels. On-screen words must come from the
 // narration itself (channel bible: honest, no invented facts). Everything here is free.
 const crypto = require('crypto');
+const { progress } = require('./progress-tracker');
 const fs = require('fs').promises;
 const fsSync = require('fs');
 const path = require('path');
@@ -354,6 +355,7 @@ ${beats.map(beat => `${beat.index + 1}. [${beat.label}] ${beat.text.slice(0, 320
   async render({ productionId, script = {}, timing, audioPath, outputPath, settings = {} }) {
     const total = await getMediaDuration(audioPath);
     const beats = groupBeats(timing.sentences, total);
+    progress.update('video', { step: 'visuals', fraction: 0.02, detail: 'Planning the pictures' });
     const plan = await this.direct(beats, script, settings);
     const workDir = path.join(path.dirname(outputPath), `${productionId || 'render'}_documentary`);
     await fs.mkdir(workDir, { recursive: true });
@@ -397,6 +399,7 @@ ${beats.map(beat => `${beat.index + 1}. [${beat.label}] ${beat.text.slice(0, 320
       const endFrame = Math.round(segment.end * FPS);
       const frames = Math.max(1, endFrame - frameCursor);
       frameCursor = endFrame;
+      progress.update('video', { step: 'visuals', fraction: 0.05 + 0.95 * (n / segments.length), detail: `Scene ${n + 1} of ${segments.length}` });
       const out = path.join(workDir, `seg_${String(n).padStart(4, '0')}.mp4`);
       const result = await this.renderSegment(segment, out, frames, { stock, addCredit, plan, workDir, n, settings });
       parts.push(out);
@@ -409,6 +412,7 @@ ${beats.map(beat => `${beat.index + 1}. [${beat.label}] ${beat.text.slice(0, 320
     }
 
     // Join the segments, burn in subtitles and add the narration.
+    progress.update('video', { step: 'finishing', fraction: 0.1, detail: 'Adding subtitles and sound' });
     const listPath = path.join(workDir, 'segments.txt');
     await fs.writeFile(listPath, parts.map(p => `file '${p}'`).join('\n'));
     const visualPath = path.join(workDir, 'visual.mp4');

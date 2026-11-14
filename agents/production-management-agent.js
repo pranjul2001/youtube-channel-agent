@@ -1,4 +1,5 @@
 const path = require('path');
+const { progress } = require('../utils/progress-tracker');
 const fs = require('fs').promises;
 const { Logger } = require('../utils/logger');
 const { AIVideoGenerator } = require('../utils/ai-video-generator');
@@ -93,6 +94,10 @@ class ProductionManagementAgent {
       // Save to database
       await this.db.saveProductionData(productionData);
       
+      // Live progress (the daily service may already have started this task).
+      progress.ensure('video', script?.title || 'Video');
+      progress.update('video', { step: 'voice', detail: 'Preparing narration' });
+
       // Generate video content
       await this.generateVideoContent(productionData);
       
@@ -120,9 +125,12 @@ class ProductionManagementAgent {
 
       await this.db.updateProductionData(productionData);
 
+      progress.update('video', { step: 'finishing', fraction: 0.95, detail: 'Final checks' });
+      if (!contentData.keepProgressOpen) progress.finish('video', simulated ? 'Only placeholder assets were made' : 'Ready for your review');
       this.logger.info(`Content processing complete: ${productionId} (status: ${productionData.status})`);
       return productionData;
     } catch (error) {
+      progress.fail('video', error.message);
       this.logger.error('Failed to process content:', error);
       throw error;
     }
@@ -649,6 +657,7 @@ class ProductionManagementAgent {
         !['slideshow', 'simulation'].includes(videoResult.actualProvider)
       );
 
+      progress.update('video', { step: 'finishing', fraction: 0.8, detail: 'Making the thumbnail' });
       // Free, honest thumbnail from a real frame of this video (replaces the template stand-in).
       if (videoResult.actualProvider === 'documentary') {
         try {

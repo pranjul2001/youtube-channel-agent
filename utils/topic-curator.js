@@ -3,6 +3,7 @@
 // of documentary topics. Each topic is tagged with one of the channel's series or "Wildcard",
 // and anything that breaks the channel bible is dropped in code, not just in the prompt.
 const axios = require('axios');
+const { progress } = require('./progress-tracker');
 const { Logger } = require('./logger');
 const { generateTextWithRetry } = require('./ai-retry');
 
@@ -113,7 +114,9 @@ class TopicCurator {
 
   async curate({ limit = 18 } = {}) {
     if (!this.aiText?.isAvailable?.()) throw new Error('AI text provider is required to curate topics');
+    progress.start('topics', 'Finding trending topics');
     const signals = await this.signals();
+    progress.update('topics', { step: 'choosing', detail: `${signals.length} trends found` });
     const recentRows = this.db?.getAllRows
       ? await this.db.getAllRows("SELECT topic FROM content_ideas WHERE status IN ('generated','generating','picked') ORDER BY created_at DESC LIMIT 60").catch(() => [])
       : [];
@@ -136,6 +139,7 @@ ${signals.slice(0, 140).map(s => `- ${s.signal} [${s.source}]`).join('\n')}`;
     const raw = await generateTextWithRetry(this.aiText, prompt, { maxTokens: 6000, temperature: 0.7, logger: this.logger });
     const match = String(raw || '').match(/\[[\s\S]*\]/);
     const candidates = TopicCurator.sanitize(match ? JSON.parse(match[0]) : [], { signals, recentTopics: recentRows.map(r => r.topic), limit: limit + 6 });
+    progress.update('topics', { step: 'checking', detail: `${candidates.length} candidate topics` });
     const topics = (await this.resolveArticles(candidates)).slice(0, limit).map((topic, i) => ({ ...topic, rank: i + 1 }));
     if (topics.length < 5) throw new Error(`Only ${topics.length} usable topics came back; keeping the previous list`);
     return { topics, signalCount: signals.length };
@@ -146,7 +150,8 @@ ${signals.slice(0, 140).map(s => `- ${s.signal} [${s.source}]`).join('\n')}`;
   async resolveArticles(candidates) {
     const out = [];
     const used = new Set();
-    for (const candidate of candidates) {
+    for (const [n, candidate] of candidates.entries()) {
+      progress.update('topics', { fraction: n / candidates.length, detail: `Checking ${n + 1} of ${candidates.length}` });
       try {
         // Stay well inside Wikipedia's rate limit.
         await new Promise(resolve => setTimeout(resolve, this.pauseMs ?? 1200));
@@ -184,7 +189,14 @@ ${signals.slice(0, 140).map(s => `- ${s.signal} [${s.source}]`).join('\n')}`;
 
   // Curate and store as the current shortlist; the previous unpicked shortlist is archived.
   async refresh(options = {}) {
-    const { topics, signalCount } = await this.curate(options);
+    let curated;
+    try {
+      curated = await this.curate(options);
+    } catch (error) {
+      progress.fail('topics', error.message);
+      throw error;
+    }
+    const { topics, signalCount } = curated;
     const batch = this.now().toISOString().slice(0, 10);
     await this.db.executeQuery("UPDATE content_ideas SET status = 'archived', updated_at = datetime('now') WHERE status = 'shortlist'");
     for (const topic of topics) {
@@ -194,6 +206,7 @@ ${signals.slice(0, 140).map(s => `- ${s.signal} [${s.source}]`).join('\n')}`;
       });
     }
     await this.db.setSetting('topics_curated_at', this.now().toISOString(), 'When the topic shortlist was last refreshed');
+    progress.finish('topics', `${topics.length} topics ready`);
     this.logger.info(`Topic shortlist refreshed: ${topics.length} topics from ${signalCount} trend signals`);
     return { topics, batch, signalCount };
   }

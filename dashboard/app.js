@@ -343,6 +343,45 @@ function renderIdeas(allIdeas) {
     </article>`).join('');
 }
 
+// ----- Live progress: what is being made right now -----------------------------------------
+function formatElapsed(seconds) {
+  const m = Math.floor(seconds / 60);
+  return m ? `${m} min ${seconds % 60}s` : `${seconds}s`;
+}
+
+function renderProgress(tasks) {
+  const panel = $('#progress-panel');
+  panel.classList.toggle('hidden', !tasks.length);
+  panel.innerHTML = tasks.map(task => {
+    const kind = { topics: 'TOPIC LIST', video: 'MAKING VIDEO', publish: 'PUBLISHING' }[task.id] || task.id.toUpperCase();
+    const state = task.status === 'done' ? 'Done' : task.status === 'failed' ? 'Problem' : `${task.percent}%`;
+    return `<article class="progress-task ${escapeHTML(task.status)}">
+      <div class="progress-head">
+        <div><p class="eyebrow">${escapeHTML(kind)}</p><strong>${escapeHTML(task.title)}</strong></div>
+        <div class="progress-state"><b>${escapeHTML(state)}</b><span>${escapeHTML(formatElapsed(task.elapsedSeconds))}</span></div>
+      </div>
+      <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${task.percent}"><div class="progress-fill" style="width:${task.percent}%"></div></div>
+      <div class="progress-steps">${task.steps.map(step => `<span class="progress-step ${escapeHTML(step.state)}">${step.state === 'done' ? '✓ ' : ''}${escapeHTML(step.label)}</span>`).join('')}</div>
+      <p class="meta-line">${escapeHTML(task.detail || '')}</p>
+    </article>`;
+  }).join('');
+}
+
+async function pollProgress() {
+  let delay = 12000;
+  try {
+    const data = await api('/api/progress');
+    const tasks = data.result || [];
+    const wasRunning = ui.progressRunning;
+    ui.progressRunning = tasks.some(task => task.status === 'running');
+    renderProgress(tasks);
+    if (ui.progressRunning) delay = 2500;
+    // Something just finished: refresh the lists it changed.
+    if (wasRunning && !ui.progressRunning) { refreshDashboard(true); loadTopics(); }
+  } catch (_error) { /* dashboard offline; try again later */ }
+  setTimeout(pollProgress, delay);
+}
+
 // ----- Topics: weekly shortlist, nightly pick, daily video --------------------------------
 async function loadTopics(silent = true) {
   try {
@@ -1317,6 +1356,9 @@ async function persistProvenance(productionId, successMessage = null) {
 
 async function mutate(url, method, body, successMessage) {
   $('#loading').classList.add('active');
+  // Long actions (publishing, building) show up in the progress panel while they run.
+  const quickLook = setTimeout(() => api('/api/progress').then(data => renderProgress(data.result || [])).catch(() => {}), 1500);
+  ui.progressRunning = true;
   try {
     const result = await api(url, { method, body: body === undefined ? undefined : JSON.stringify(body) });
     showToast(successMessage);
@@ -1911,3 +1953,4 @@ const initialView = location.hash.slice(1);
 if (['overview', 'operator', 'pipeline', 'calendar', 'analytics', 'engagement', 'readiness', 'settings'].includes(initialView)) switchView(initialView);
 refreshDashboard();
 setInterval(() => refreshDashboard(true), 8000);
+pollProgress();

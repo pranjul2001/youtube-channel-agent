@@ -1,4 +1,5 @@
 const OpenAI = require('openai');
+const { progress } = require('./progress-tracker');
 const Replicate = require('replicate');
 const fs = require('fs').promises;
 const path = require('path');
@@ -321,6 +322,7 @@ class AIVideoGenerator {
       try {
         rendered = [];
         for (const [index, chunk] of chunks.entries()) {
+          progress.update('video', { step: 'voice', fraction: index / chunks.length, detail: `Recording part ${index + 1} of ${chunks.length}` });
           const wav = path.join(workDir, `chunk_${String(index).padStart(3, '0')}.wav`);
           await this.synthesizeNarrationChunk(chunk, wav, { ...settings, model, useGemini });
           rendered.push(wav);
@@ -359,6 +361,7 @@ class AIVideoGenerator {
 
     // Master: gentle high-pass, light compression and broadcast loudness (-16 LUFS), 48 kHz.
     // None of these filters change timing, so the sentence times above stay exact.
+    progress.update('video', { step: 'voice', fraction: 0.95, detail: 'Timing subtitles and mastering audio' });
     const listPath = path.join(workDir, 'concat.txt');
     await fs.writeFile(listPath, concatList.map(file => `file '${file.replace(/'/g, "'\\''")}'`).join('\n'));
     await runFFmpeg(['-y', '-f', 'concat', '-safe', '0', '-i', listPath,
