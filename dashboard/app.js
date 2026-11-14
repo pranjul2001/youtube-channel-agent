@@ -328,7 +328,9 @@ function renderCalendar(schedule) {
   renderSchedule(schedule, '#calendar-list');
 }
 
-function renderIdeas(ideas) {
+function renderIdeas(allIdeas) {
+  // Curated topics live on the Topics page; this panel keeps the manual backlog.
+  const ideas = allIdeas.filter(idea => !idea.batch);
   const container = $('#idea-list');
   if (!ideas.length) {
     container.innerHTML = empty('Add promising topics here before spending generation credits.');
@@ -339,6 +341,52 @@ function renderIdeas(ideas) {
       <div class="idea-meta"><strong>${escapeHTML(idea.topic)}</strong><div class="meta-line">${escapeHTML(idea.angle || idea.rationale || 'No angle added')} · ${statusChip(idea.status)}</div></div>
       ${idea.status === 'backlog' ? `<button class="button secondary small" data-generate-idea="${escapeHTML(idea.id)}">Generate</button>` : ''}
     </article>`).join('');
+}
+
+// ----- Topics: weekly shortlist, nightly pick, daily video --------------------------------
+async function loadTopics(silent = true) {
+  try {
+    const data = await api('/api/topics');
+    ui.topics = data.result || data;
+    renderTopics(ui.topics);
+  } catch (error) {
+    if (!silent) showToast(error.message, 'error');
+  }
+}
+
+function renderTopics(data) {
+  const { topics = [], settings = {}, tomorrow, building, refreshing } = data;
+  $('#daily-video-enabled').checked = Boolean(settings.enabled);
+  if (document.activeElement !== $('#daily-build-time')) $('#daily-build-time').value = settings.buildTime || '06:00';
+  const picked = topics.find(topic => topic.status === 'picked');
+  const parts = [];
+  if (building) parts.push('A video is being made right now.');
+  if (refreshing) parts.push('Refreshing the list…');
+  parts.push(picked ? `Next video: "${picked.topic}" (${picked.scheduledFor}).` : `Nothing picked for ${tomorrow}: the top topic will be used.`);
+  if (settings.curatedAt) parts.push(`List updated ${new Date(settings.curatedAt).toLocaleDateString()}.`);
+  if (settings.lastError) parts.push(`Last build problem: ${settings.lastError}`);
+  if (!settings.enabled) parts.push('Daily video is OFF.');
+  $('#topics-status').textContent = parts.join(' ');
+  const container = $('#topic-list');
+  if (!topics.length) {
+    container.innerHTML = empty('No topics yet. Press "Refresh list" to find what is trending.');
+    return;
+  }
+  container.innerHTML = topics.map(topic => {
+    const tagClass = topic.tag === 'Wildcard' ? 'wildcard' : 'series';
+    const action = topic.status === 'picked'
+      ? `<button class="button secondary small" data-unpick-topic="${escapeHTML(topic.id)}">Picked for ${escapeHTML(topic.scheduledFor || '')} ✓ (undo)</button>`
+      : topic.status === 'shortlist' || topic.status === 'failed'
+        ? `<button class="button small" data-pick-topic="${escapeHTML(topic.id)}">Pick for tomorrow</button>`
+        : statusChip(topic.status === 'generated' ? 'ready' : topic.status);
+    return `<article class="idea-card topic-card ${topic.status === 'picked' ? 'picked' : ''}">
+      <div class="idea-meta">
+        <strong>${escapeHTML(topic.topic)}</strong>
+        <div class="meta-line"><span class="topic-tag ${tagClass}">${escapeHTML(topic.tag === 'Wildcard' ? 'Wildcard' : `Fits: ${topic.tag}`)}</span>${topic.trending ? '<span class="topic-tag trending">Trending</span>' : ''} ${escapeHTML(topic.why || topic.angle || '')}</div>
+      </div>
+      ${action}
+    </article>`;
+  }).join('');
 }
 
 function renderAnalytics(analytics, learning = {}) {
@@ -864,6 +912,7 @@ function populateSettings(profile = {}, settings = {}, providers = []) {
 }
 
 function switchView(view) {
+  if (view === 'topics') loadTopics(false);
   ui.currentView = view;
   $$('.nav-item').forEach(item => item.classList.toggle('active', item.dataset.view === view));
   $$('.view').forEach(item => item.classList.toggle('active', item.id === `${view}-view`));
@@ -871,6 +920,7 @@ function switchView(view) {
     overview: ['OPERATOR OVERVIEW', 'Know what happens next.'],
     operator: ['AUTONOMOUS OPERATOR', 'Give YouTube Automation Agent the strategy.'],
     pipeline: ['CONTENT OPERATIONS', 'From idea to published.'],
+    topics: ['DAILY VIDEO', 'Choose what gets made next.'],
     calendar: ['EDITORIAL PLANNING', 'Plan before you generate.'],
     analytics: ['PERFORMANCE', 'Turn results into the next move.'],
     engagement: ['AUDIENCE ENGAGEMENT', 'Talk with the people watching.'],
@@ -1296,6 +1346,18 @@ document.addEventListener('click', async event => {
     await mutate(`/api/jobs/${encodeURIComponent(cancel.dataset.cancelJob)}/cancel`, 'POST', {}, 'Cancellation requested.').catch(() => {});
   }
 
+  const pickTopic = event.target.closest('[data-pick-topic]');
+  if (pickTopic) {
+    await mutate(`/api/topics/${encodeURIComponent(pickTopic.dataset.pickTopic)}/pick`, 'POST', {}, 'Picked. It will be made tomorrow morning.').catch(() => {});
+    await loadTopics();
+    return;
+  }
+  const unpickTopic = event.target.closest('[data-unpick-topic]');
+  if (unpickTopic) {
+    await mutate(`/api/topics/${encodeURIComponent(unpickTopic.dataset.unpickTopic)}/unpick`, 'POST', {}, 'Pick removed.').catch(() => {});
+    await loadTopics();
+    return;
+  }
   const idea = event.target.closest('[data-generate-idea]');
   if (idea) {
     await mutate(`/api/ideas/${encodeURIComponent(idea.dataset.generateIdea)}/generate`, 'POST', { length: 'medium' }, 'Idea queued for generation.').catch(() => {});
@@ -1710,6 +1772,20 @@ document.addEventListener('change', event => {
 
 $('#generate-button').addEventListener('click', () => $('#generate-dialog').showModal());
 $('#add-idea-button').addEventListener('click', () => $('#idea-dialog').showModal());
+$('#refresh-topics-button').addEventListener('click', async () => {
+  await mutate('/api/topics/refresh', 'POST', {}, 'Looking for trending topics. This takes about a minute.').catch(() => {});
+  setTimeout(loadTopics, 1500);
+  setTimeout(loadTopics, 45000);
+  setTimeout(loadTopics, 90000);
+});
+$('#daily-video-enabled').addEventListener('change', async event => {
+  await mutate('/api/daily-video/settings', 'POST', { enabled: event.target.checked }, event.target.checked ? 'Daily video is ON.' : 'Daily video is OFF.').catch(() => {});
+  await loadTopics();
+});
+$('#daily-build-time').addEventListener('change', async event => {
+  await mutate('/api/daily-video/settings', 'POST', { buildTime: event.target.value }, 'Build time saved.').catch(() => {});
+  await loadTopics();
+});
 $('#refresh-button').addEventListener('click', () => refreshDashboard());
 $('#channel-snapshot-refresh').addEventListener('click', () => loadChannelSnapshot(true));
 $('#pipeline-filter').addEventListener('change', () => renderPipeline(ui.state?.pipeline || []));

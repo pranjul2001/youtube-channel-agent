@@ -84,7 +84,10 @@ class SystemTest {
       { name: 'Timed Narration Pipeline', test: () => this.testTimedNarrationPipeline() },
       { name: 'Documentary Visual Plan Stays Grounded', test: () => this.testDocumentaryPlanning() },
       { name: 'Documentary Render With Burned Subtitles', test: () => this.testDocumentaryRender() },
-      { name: 'Clip Vetting and Honest Thumbnails', test: () => this.testClipVettingAndThumbnails() }
+      { name: 'Clip Vetting and Honest Thumbnails', test: () => this.testClipVettingAndThumbnails() },
+      { name: 'Topic Shortlist Follows the Channel Bible', test: () => this.testTopicCurator() },
+      { name: 'Automatic Script Is Checked Against Its Sources', test: () => this.testDocumentaryScriptWriter() },
+      { name: 'Daily Video Builds Once a Day and Never Publishes', test: () => this.testDailyVideoService() }
     ];
 
     let passed = 0;
@@ -4209,6 +4212,140 @@ class SystemTest {
     const { PublishingSchedulingAgent } = require('./agents/publishing-scheduling-agent');
     const source = require('fs').readFileSync(require.resolve('./agents/publishing-scheduling-agent'), 'utf8');
     if (!PublishingSchedulingAgent || !/thumb\.placeholder === true/.test(source)) throw new Error('Placeholder thumbnails must be skipped at upload');
+  }
+
+  async testTopicCurator() {
+    const { TopicCurator } = require('./utils/topic-curator');
+    const signals = [{ signal: 'SS United States' }, { signal: 'Lara Stone' }];
+    const out = TopicCurator.sanitize([
+      { topic: 'The Rise and Demise of the SS United States', why: 'w', angle: 'a', tag: 'True stories', wikipedia: 'SS United States', trend: 'SS United States' },
+      { topic: 'The Physics and History of Glassmaking', why: 'w', angle: 'a', tag: 'True stories', wikipedia: 'Glass', trend: 'Lara Stone' },
+      { topic: 'Which stocks to buy now for quick profit', why: 'w', angle: 'a', tag: 'Money explained', wikipedia: 'Stock', trend: '' },
+      { topic: 'The serial killer who was never caught', why: 'w', angle: 'a', tag: 'Mysteries', wikipedia: 'Zodiac Killer', trend: '' },
+      { topic: 'How Octopuses Think and Solve Problems', why: 'w', angle: 'a', tag: 'Nature', wikipedia: 'Octopus', trend: '' },
+      { topic: 'Duplicate of the liner story', why: 'w', angle: 'a', tag: 'True stories', wikipedia: 'SS United States', trend: '' }
+    ], { signals });
+    if (out.length !== 3) throw new Error(`Advice, crime and duplicate topics must be dropped; got ${out.map(o => o.topic).join(' | ')}`);
+    if (out[0].topic.indexOf('SS United States') < 0 || !out[0].trending || out[0].rank !== 1) throw new Error('A real trend must rank first and be marked trending');
+    const glass = out.find(o => /Glassmaking/.test(o.topic));
+    if (glass.trending || !/^Evergreen pick/.test(glass.why)) throw new Error('A trend unrelated to the topic must not be shown as trending');
+    if (out.find(o => /Octopus/.test(o.topic)).tag !== 'Wildcard') throw new Error('Topics outside the three series must be tagged Wildcard');
+
+    // Articles are verified; a mismatched one is replaced by search or the topic is dropped.
+    const curator = new TopicCurator({
+      logger: { info() {}, warn() {} },
+      http: { get: async (_url, { params }) => params.list === 'search'
+        ? { data: { query: { search: [{ title: 'Coffee production', size: 50000 }] } } }
+        : { data: { query: { pages: { 1: params.titles === 'Octopus' ? { title: 'Octopus', length: 90000 } : { title: params.titles, missing: '' } } } } } }
+    });
+    curator.pauseMs = 0;
+    const resolved = await curator.resolveArticles([
+      { topic: 'How Octopuses Think', wikipedia: 'Octopus' },
+      { topic: 'The Global Trade of Coffee Production', wikipedia: 'Jeff Bezos' },
+      { topic: 'A Topic With No Article At All', wikipedia: 'Nonexistent thing' }
+    ]);
+    if (resolved.length !== 2 || resolved[1].wikipedia !== 'Coffee production') throw new Error(`Wrong articles must be replaced or dropped: ${JSON.stringify(resolved)}`);
+  }
+
+  async testDocumentaryScriptWriter() {
+    const { DocumentaryScriptWriter, checkClaim, copiedShare } = require('./utils/documentary-script-writer');
+    const { parseScript } = require('./scripts/import-approved-script');
+    const article = 'The lighthouse was first lit in 1698 on the Eddystone Rocks, about 14 kilometres south of Plymouth. Henry Winstanley built the first tower. ' +
+      'A great storm destroyed it in 1703. The current tower, designed by James Douglass, was completed in 1882 and stands 49 metres tall. '.repeat(1) +
+      'Filler sentence about the sea and the reef and the keepers who lived there for many years. '.repeat(30);
+    const byKey = new Map([['W1', { norm: article.toLowerCase().replace(/[^a-z0-9.\s]/g, ' ') }]]);
+    if (!checkClaim({ text: 'The first lighthouse was lit in 1698.', sources: ['W1'] }, byKey).ok) throw new Error('A claim matching the source must pass');
+    if (checkClaim({ text: 'The first lighthouse was lit in 1699.', sources: ['W1'] }, byKey).ok) throw new Error('A wrong year must fail');
+    if (checkClaim({ text: 'Pirates burned the lighthouse during a rebellion.', sources: ['W1'] }, byKey).ok) throw new Error('An invented claim must fail');
+    if (copiedShare(article.slice(0, 400), article.toLowerCase().replace(/[^a-z0-9.\s]/g, ' ').replace(/\s+/g, ' ')) < 0.5) throw new Error('Copied wording must be detected');
+
+    const para = n => Array.from({ length: n }, (_, i) => `A calm sentence number ${['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight'][i % 8]} tells part of the story in fresh words for the listener.`).join(' ');
+    const draft = year => JSON.stringify({
+      title: 'The Light on the Eddystone Rocks',
+      hook: ['Why would anyone build a tower on a reef that the sea covers?', para(4)],
+      sections: ['The reef', 'The builder', 'The storm', 'The rebuild', 'The tower today'].map(title => ({ title, paragraphs: [para(11), `It was first lit in ${year}.`] })),
+      closing: [para(4)],
+      cta: 'Subscribe for more calm, careful stories.',
+      claims: [{ text: `The lighthouse was first lit in ${year}.`, sources: ['W1'], risk: 'high' }, { text: 'The current tower was completed in 1882 and stands 49 metres tall.', sources: ['W1'], risk: 'high' }],
+      keywords: ['Eddystone Lighthouse']
+    });
+    const prompts = [];
+    const replies = [draft(1699), draft(1698)];
+    const writer = new DocumentaryScriptWriter({
+      logger: { info() {}, warn() {} },
+      aiText: { model: 'stub', isAvailable: () => true, generateText: async prompt => { prompts.push(prompt); return replies[prompts.length - 1]; } },
+      http: { get: async (_url, { params }) => params.list === 'search'
+        ? { data: { query: { search: [] } } }
+        : { data: { query: { pages: { 1: { title: 'Eddystone Lighthouse', fullurl: 'https://en.wikipedia.org/wiki/Eddystone_Lighthouse', extract: article } } } } } }
+    });
+    const result = await writer.write({ topic: 'Eddystone Lighthouse', tag: 'True stories', wikipedia: 'Eddystone Lighthouse' });
+    if (prompts.length !== 2 || !/1699/.test(prompts[1]) || !/FIX THESE PROBLEMS/.test(prompts[1])) throw new Error('An unsupported number must be sent back to the AI for correction');
+    if (result.report.failedClaims.length || result.report.unknownNumbers.length) throw new Error('The corrected draft must be the one kept');
+    if (!prompts[0].includes(article.slice(0, 80))) throw new Error('The writer must be given the source text');
+    const parsed = parseScript(result.markdown);
+    if (parsed.title !== 'The Light on the Eddystone Rocks' || parsed.sections.length !== 5 || parsed.claims.length !== 2 || parsed.sources[0].url !== 'https://en.wikipedia.org/wiki/Eddystone_Lighthouse') {
+      throw new Error('The written script must import through the approved-script path');
+    }
+  }
+
+  async testDailyVideoService() {
+    const { DailyVideoService } = require('./utils/daily-video-service');
+    const { Database } = require('./database/db');
+    const os = require('os');
+    const fsp = require('fs').promises;
+    const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'yaa-daily-'));
+    const saved = process.env.YAA_DB_PATH;
+    process.env.YAA_DB_PATH = path.join(dir, 'daily.db');
+    const db = new Database();
+    await db.initialize();
+    process.env.YAA_DB_PATH = saved;
+    try {
+      await db.setSetting('channel_timezone', 'Asia/Kolkata');
+      await db.setSetting('daily_build_time', '06:00');
+      await db.setSetting('topics_curated_at', '2026-11-14T00:00:00.000Z');
+      for (const [i, topic] of ['Top topic', 'Second topic', 'Third topic'].entries()) {
+        await db.createContentIdea({ topic, status: 'shortlist', tag: 'Wildcard', rank: i + 1, batch: '2026-11-14', wikipedia: topic });
+      }
+      const ideas = await db.getAllRows('SELECT * FROM content_ideas ORDER BY rank');
+      let clock = new Date('2026-11-14T23:00:00+05:30');
+      const made = [];
+      const service = new DailyVideoService({
+        db, logger: { info() {}, warn() {}, error() {} }, now: () => clock, sleep: async () => {}, scriptsDir: path.join(dir, 'scripts'),
+        curator: { refresh: async () => { throw new Error('should not refresh a fresh list'); } },
+        writer: { write: async topic => { made.push(topic.topic); return { script: { title: topic.topic, keywords: [] }, markdown: '# x', sources: [], report: { words: 900, failedClaims: [], unknownNumbers: [], claims: [] } }; } },
+        importScript: async () => ({ jobId: (await db.createGenerationJob({ topic: 't', style: 'story', length: 'medium', source: 'manual', strategyContext: {} })).id }),
+        resumeJob: async jobId => db.updateGenerationJob(jobId, { status: 'completed', productionId: 'prod_test' })
+      });
+      service.waitForJob = async jobId => ({ ...(await db.getGenerationJob(jobId)), status: 'completed', production_id: 'prod_test' });
+
+      if ((await service.tick()).skipped !== 'disabled') throw new Error('Daily video must be off until the owner turns it on');
+      await db.setSetting('daily_video_enabled', 'true');
+      if (await service.tomorrow() !== '2026-11-15') throw new Error('Tomorrow must use the channel timezone');
+      await service.pick(ideas[1].id);
+      await service.pick(ideas[2].id);
+      const picked = await db.getAllRows("SELECT topic FROM content_ideas WHERE status = 'picked'");
+      if (picked.length !== 1 || picked[0].topic !== 'Third topic') throw new Error('Only one topic can be picked per day');
+
+      clock = new Date('2026-11-15T05:30:00+05:30');
+      if ((await service.tick()).skipped !== 'before build time') throw new Error('Nothing may build before the build time');
+      clock = new Date('2026-11-15T09:10:00+05:30'); // machine was asleep at 06:00
+      if ((await service.tick()).started !== '2026-11-15') throw new Error('A missed build time must be caught up');
+      await service.running;
+      if (made.join() !== 'Third topic') throw new Error(`The picked topic must be made, got ${made}`);
+      if ((await service.tick()).skipped !== 'already built today') throw new Error('Only one video per day');
+
+      clock = new Date('2026-11-16T06:05:00+05:30'); // nothing picked: the top of the list
+      await service.tick();
+      await service.running;
+      if (made[1] !== 'Top topic') throw new Error(`With no pick, the top topic must be made, got ${made[1]}`);
+      const statuses = await db.getAllRows("SELECT topic, status FROM content_ideas ORDER BY rank");
+      if (statuses.map(row => row.status).join() !== 'generated,shortlist,generated') throw new Error(`Idea statuses wrong: ${JSON.stringify(statuses)}`);
+      const source = require('fs').readFileSync(require.resolve('./utils/daily-video-service'), 'utf8');
+      if (/publish-now|publishNow|uploadToYouTube/.test(source)) throw new Error('The daily service must never publish');
+    } finally {
+      await db.close?.();
+      await fsp.rm(dir, { recursive: true, force: true });
+    }
   }
 
   async testLoopedVideoIsBounded() {

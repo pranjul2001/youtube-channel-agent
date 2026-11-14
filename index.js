@@ -147,6 +147,26 @@ class YouTubeAutomationAgent {
       if (await this.db.getSetting('automation_paused') === 'true') {
         await this.scheduler.pauseAutomation();
       }
+
+      // Daily video: curated topics, one finished video per day in the review queue. It has its
+      // own switch (daily_video_enabled) and never publishes, so it works while automation
+      // (auto-publishing) stays paused.
+      {
+        const { TopicCurator } = require('./utils/topic-curator');
+        const { DocumentaryScriptWriter } = require('./utils/documentary-script-writer');
+        const { DailyVideoService } = require('./utils/daily-video-service');
+        const { importScript } = require('./scripts/import-approved-script');
+        const aiText = new AITextService(this.credentials?.credentials || {});
+        this.dailyVideo = new DailyVideoService({
+          db: this.db,
+          curator: new TopicCurator({ db: this.db, aiText, youtubeTrends: () => this.agents.strategy.fetchYouTubeTrends() }),
+          writer: new DocumentaryScriptWriter({ aiText }),
+          importScript,
+          resumeJob: jobId => this.resumeGenerationJob(jobId),
+          fillEvidence: (productionId, report, sources) => this.fillEvidenceFromReport(productionId, report, sources)
+        });
+        this.dailyVideo.startClock();
+      }
       
       this.isInitialized = true;
       this.logger.success('YouTube Automation Agent initialized successfully!');
@@ -1231,6 +1251,38 @@ class YouTubeAutomationAgent {
       return res.status(202).json({ success: true, result: job });
     });
 
+    // Topic shortlist and the daily video.
+    const daily = handler => async (req, res) => {
+      try {
+        if (!this.dailyVideo) return res.status(503).json({ error: 'Finish setup first' });
+        return res.json({ success: true, result: await handler(req) });
+      } catch (error) {
+        return res.status(error.status || 500).json({ success: false, error: error.message });
+      }
+    };
+    this.app.get('/api/topics', daily(() => this.dailyVideo.listTopics()));
+    this.app.post('/api/topics/refresh', protect, daily(async () => {
+      this.dailyVideo.refreshTopics().catch(error => this.logger.warn(`Topic refresh failed: ${error.message}`));
+      return { started: true };
+    }));
+    this.app.post('/api/topics/:ideaId/pick', protect, daily(req => this.dailyVideo.pick(req.params.ideaId, req.body?.date || null)));
+    this.app.post('/api/topics/:ideaId/unpick', protect, daily(req => this.dailyVideo.unpick(req.params.ideaId)));
+    this.app.post('/api/daily-video/settings', protect, daily(async req => {
+      const { enabled, buildTime } = req.body || {};
+      if (enabled !== undefined) await this.db.setSetting('daily_video_enabled', enabled ? 'true' : 'false', 'Make one video per day for the review queue');
+      if (buildTime !== undefined) {
+        if (!/^([01]?\d|2[0-3]):[0-5]\d$/.test(String(buildTime))) throw Object.assign(new Error('Time must be HH:MM'), { status: 400 });
+        await this.db.setSetting('daily_build_time', String(buildTime), 'Local time the daily video build starts');
+      }
+      return (await this.dailyVideo.listTopics()).settings;
+    }));
+    this.app.post('/api/daily-video/run', protect, daily(async () => {
+      if (this.dailyVideo.running) throw Object.assign(new Error('A daily video is already being made'), { status: 409 });
+      const settings = await this.dailyVideo.settings();
+      this.dailyVideo.start(this.dailyVideo.localClock(settings.timezone).date, 1);
+      return { started: true };
+    }));
+
     this.app.post('/api/automation/:action', protect, async (req, res) => {
       if (!this.scheduler) return res.status(409).json({ error: 'Finish setup before controlling automation' });
       const { action } = req.params;
@@ -1314,6 +1366,34 @@ class YouTubeAutomationAgent {
       .finally(() => this.activeJobs.delete(job.id));
     this.activeJobs.set(job.id, work);
     return job;
+  }
+
+  // Fact-check desk for automatically written scripts: sources are marked verified (they were
+  // fetched and read by the writer); only claims whose numbers and key words matched the
+  // cited article are marked supported. Everything else is left for the human reviewer.
+  async fillEvidenceFromReport(productionId, report, sources) {
+    const base = `http://127.0.0.1:${this.port || process.env.PORT || 3456}`;
+    const headers = { 'x-api-key': process.env.API_KEY, 'Content-Type': 'application/json' };
+    const bundle = await (await fetch(`${base}/api/content/${productionId}`, { headers })).json();
+    const provenance = (bundle.result || bundle).provenance;
+    if (!provenance) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const checks = new Map(report.claims.map(claim => [claim.text, claim.check]));
+    const body = {
+      sources: provenance.sources.map(source => ({
+        ...source, status: 'verified',
+        notes: `Fetched and read automatically on ${today} (${sources.find(item => item.url === source.url)?.title || 'Wikipedia'}).`
+      })),
+      claims: provenance.claims.map(claim => {
+        const check = checks.get(claim.text);
+        return check?.ok
+          ? { ...claim, status: 'supported', notes: 'Automatic check: its numbers and key words match the cited article.' }
+          : { ...claim, notes: `Needs your check: ${check?.reason || 'not matched automatically'}.` };
+      }),
+      containsSyntheticMedia: false
+    };
+    const response = await fetch(`${base}/api/content/${productionId}/provenance`, { method: 'PUT', headers, body: JSON.stringify(body) });
+    if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || `HTTP ${response.status}`);
   }
 
   async resumeGenerationJob(jobId, options = {}) {

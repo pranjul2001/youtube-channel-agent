@@ -18,6 +18,7 @@ const sharp = require('sharp');
 const { runFFmpeg, getMediaDuration } = require('./ffmpeg');
 const { toASS } = require('./narration-timing');
 const { Logger } = require('./logger');
+const { generateTextWithRetry } = require('./ai-retry');
 
 const W = 1920;
 const H = 1080;
@@ -339,7 +340,7 @@ Return ONLY JSON: {"fallback":"2-3 word stock query that fits the whole video","
 
 ${beats.map(beat => `${beat.index + 1}. [${beat.label}] ${beat.text.slice(0, 320)}`).join('\n')}`;
     try {
-      const raw = await this.aiText.generateText(prompt, { maxTokens: 6000, temperature: 0.4 });
+      const raw = await generateTextWithRetry(this.aiText, prompt, { maxTokens: 6000, temperature: 0.4, logger: this.logger, triesPerModel: 2 });
       const match = String(raw || '').match(/\{[\s\S]*\}/);
       const parsed = match ? JSON.parse(match[0]) : {};
       const fallback = String(parsed.fallback || '').replace(/[^\p{L}\s]/gu, ' ').trim() || fallbackQuery;
@@ -416,7 +417,9 @@ ${beats.map(beat => `${beat.index + 1}. [${beat.label}] ${beat.text.slice(0, 320
     if (settings.burnSubtitles !== false && timing.cues?.length) {
       const assPath = path.join(workDir, 'subtitles.ass');
       await fs.writeFile(assPath, toASS(timing.cues, { font: settings.subtitleFont || 'Arial' }));
-      const fontsDir = settings.fontsDir || ['/System/Library/Fonts/Supplemental', '/usr/share/fonts'].find(dir => fsSync.existsSync(dir));
+      // macOS system fonts, or Liberation (Arial-compatible) on a Linux server.
+      const fontsDir = settings.fontsDir || process.env.SUBTITLE_FONTS_DIR ||
+        ['/System/Library/Fonts/Supplemental', '/usr/share/fonts/truetype/liberation', '/usr/share/fonts/truetype/dejavu', '/usr/share/fonts'].find(dir => fsSync.existsSync(dir));
       const esc = value => value.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
       vf.push(`subtitles='${esc(assPath)}'${fontsDir ? `:fontsdir='${esc(fontsDir)}'` : ''}`);
     }

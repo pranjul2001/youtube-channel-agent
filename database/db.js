@@ -648,13 +648,22 @@ class Database {
     await this.ensureColumns('discoverability_audits', {
       error_code: 'TEXT'
     });
+    // Curated topic shortlist: series tag, rank, weekly batch, research article, job link.
+    await this.ensureColumns('content_ideas', {
+      tag: 'TEXT',
+      rank: 'INTEGER',
+      batch: 'TEXT',
+      wikipedia: 'TEXT',
+      trending: 'INTEGER DEFAULT 0',
+      job_id: 'TEXT'
+    });
 
     // Insert default settings
     await this.insertDefaultSettings();
   }
 
   async ensureColumns(tableName, columns) {
-    const allowedTables = new Set(['production_scenes', 'channel_strategies', 'discoverability_audits']);
+    const allowedTables = new Set(['production_scenes', 'channel_strategies', 'discoverability_audits', 'content_ideas']);
     if (!allowedTables.has(tableName)) throw new Error(`Unsupported migration table: ${tableName}`);
     const existing = new Set((await this.getAllRows(`PRAGMA table_info(${tableName})`)).map(column => column.name));
     for (const [columnName, definition] of Object.entries(columns)) {
@@ -1594,9 +1603,10 @@ class Database {
   async createContentIdea(idea) {
     const id = this.generateId('idea');
     await this.executeQuery(
-      `INSERT INTO content_ideas (id, topic, angle, style, status, rationale, scheduled_for)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [id, idea.topic, idea.angle || null, idea.style || 'explainer', idea.status || 'backlog', idea.rationale || null, idea.scheduledFor || null]
+      `INSERT INTO content_ideas (id, topic, angle, style, status, rationale, scheduled_for, tag, rank, batch, wikipedia, trending)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, idea.topic, idea.angle || null, idea.style || 'explainer', idea.status || 'backlog', idea.rationale || null, idea.scheduledFor || null,
+        idea.tag || null, Number.isFinite(Number(idea.rank)) ? Number(idea.rank) : null, idea.batch || null, idea.wikipedia || null, idea.trending ? 1 : 0]
     );
     return this.getRow('SELECT * FROM content_ideas WHERE id = ?', [id]);
   }
@@ -1610,7 +1620,7 @@ class Database {
     if (!current) return null;
     await this.executeQuery(
       `UPDATE content_ideas SET topic = ?, angle = ?, style = ?, status = ?,
-       rationale = ?, scheduled_for = ?, updated_at = datetime('now') WHERE id = ?`,
+       rationale = ?, scheduled_for = ?, job_id = ?, updated_at = datetime('now') WHERE id = ?`,
       [
         changes.topic ?? current.topic,
         changes.angle ?? current.angle,
@@ -1618,6 +1628,7 @@ class Database {
         changes.status ?? current.status,
         changes.rationale ?? current.rationale,
         changes.scheduledFor === undefined ? current.scheduled_for : changes.scheduledFor,
+        changes.jobId ?? current.job_id,
         id
       ]
     );

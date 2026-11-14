@@ -24,6 +24,7 @@
         <button class="nav-item active" data-view="overview"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7.5" height="9.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="5.5" rx="1.5"/><rect x="13.5" y="11.5" width="7.5" height="9.5" rx="1.5"/><rect x="3" y="15.5" width="7.5" height="5.5" rx="1.5"/></svg> Overview</button>
         <button class="nav-item" data-view="operator"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1"/></svg> Autonomous operator</button>
         <button class="nav-item" data-view="pipeline"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h10M4 12h16M4 18h7"/><circle cx="17.5" cy="6" r="2"/><circle cx="14.5" cy="18" r="2"/></svg> Pipeline <b id="review-badge" class="badge hidden">0</b></button>
+        <button class="nav-item" data-view="topics"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17l5-5 4 3 8-9"/><path d="M15 6h5v5"/></svg> Topics</button>
         <button class="nav-item" data-view="calendar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="16.5" rx="2"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4M7.5 13.5h3v3h-3z"/></svg> Calendar & ideas</button>
         <button class="nav-item" data-view="analytics"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 20.5h17"/><path d="M6.5 20V11M11 20V4.5M15.5 20v-7M20 20V8.5"/></svg> Analytics</button>
         <button class="nav-item" data-view="engagement"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 01-9.1 8.4 9 9 0 01-3.8-.9L3 20l1-4.9A8.4 8.4 0 1121 11.5z"/><path d="M8 10h8M8 13.5h5"/></svg> Engagement</button>
@@ -123,6 +124,19 @@
       <section id="pipeline-view" class="view">
         <div class="section-intro"><div><h2>Content pipeline</h2><p>Every generated video, its real state, and the next available action.</p></div><select id="pipeline-filter"><option value="all">All content</option><option value="needs_review">Needs review</option><option value="needs_attention">Needs attention</option><option value="approved">Approved</option><option value="published">Published</option></select></div>
         <div id="pipeline-list" class="pipeline-list"></div>
+      </section>
+
+      <section id="topics-view" class="view">
+        <div class="split-heading">
+          <div><h2>Pick tomorrow's video</h2><p id="topics-summary">Trending topics, refreshed weekly. Pick one tonight; the video is made tomorrow morning and waits for your review.</p></div>
+          <div class="topics-actions">
+            <label class="topics-toggle"><input type="checkbox" id="daily-video-enabled"> <span>Make one video every day</span></label>
+            <label class="topics-time">at <input type="time" id="daily-build-time" value="06:00"></label>
+            <button id="refresh-topics-button" class="button secondary">Refresh list</button>
+          </div>
+        </div>
+        <p id="topics-status" class="meta-line"></p>
+        <div id="topic-list" class="idea-list"></div>
       </section>
 
       <section id="calendar-view" class="view">
