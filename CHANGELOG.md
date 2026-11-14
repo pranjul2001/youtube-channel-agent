@@ -1,5 +1,40 @@
 # Changelog
 
+## Curious Files fork
+
+Changes on branch `channel`, newest first. Upstream entries follow below.
+
+- **Daily video on GitHub Actions** ([ADR 0003](docs/adr/0003-daily-video-on-github-actions.md)):
+  - a weekly trending-topic issue the owner ticks
+  - a 06:00 IST build that uploads as private and comments with the Studio link, script and facts to check
+  - secrets from GitHub Secrets; channel settings from `config/channel-seed.json`
+- **Topics page and daily video** on the local dashboard:
+  - `TopicCurator` (Google Trends, Wikipedia most-read, YouTube trending; series or Wildcard tags; bible filter; verified articles)
+  - `DocumentaryScriptWriter` (Wikipedia research; claim, number and copied-wording checks)
+  - `DailyVideoService` (nightly pick, catch-up after sleep, restart recovery)
+- **Live progress panel** for topic refresh, video builds (script → voice → visuals → finishing) and YouTube uploads (MB uploaded).
+- **Reliability:**
+  - `npm run e2e` end-to-end check
+  - retries for empty Gemini TTS replies and stock searches
+  - backup Gemini text models with per-call deadlines
+  - the voice readiness probe uses the channel's own voice models
+- **Honest thumbnails** from a real video frame with script-grounded text. Template and placeholder thumbnails are never uploaded.
+- **Clip vetting:** stock clips are filtered by tags (people, food, tropical, AI-generated) and by an AI look at the preview frame. Archive images must name the beat's subject.
+- **Motion-documentary renderer** ([ADR 0002](docs/adr/0002-timed-narration-and-motion-documentary.md)):
+  - sentence-timed beats
+  - Natural Earth locator maps
+  - Commons and NASA images (no share-alike by default)
+  - date and figure cards, chapter cards
+  - burned-in ASS subtitles
+- **Timed narration:** chunked Gemini TTS with a calm-male style direction (voice Iapetus), pause-based sentence alignment, accurate SRT captions and mastered 48 kHz audio.
+- **Stock footage** from Pixabay and Pexels ([ADR 0001](docs/adr/0001-pexels-stock-footage.md)), with videographer credits, real chapters and sources in descriptions, blocklist and visual mood settings.
+- **Fixes:**
+  - a looped FFmpeg mux that could fill the disk (375 GB)
+  - the Pixabay key leaking in errors
+  - narration reading "Section N" aloud
+  - AI-invented chapter timestamps
+  - "U.S." splitting sentences
+
 ## Unreleased
 
 - Refreshed provider defaults and selectors: OpenAI GPT-6.1 Sol (with GPT-6 Astra and Luna), Gemini 3.8 Flash (with Gemini 4 Argon), MiMo V2.6, GLM-5.3 Flash, Claude Fable 5.1, and the current OpenRouter catalog

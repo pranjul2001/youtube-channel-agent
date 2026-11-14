@@ -22,7 +22,7 @@ const api = async (route, options = {}) => {
   const response = await fetch(`${BASE}${route}`, {
     ...options,
     headers: { 'x-api-key': KEY, 'Content-Type': 'application/json', ...(options.headers || {}) },
-    signal: AbortSignal.timeout(options.timeout || 120000)
+    signal: globalThis.AbortSignal.timeout(options.timeout || 120000)
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);

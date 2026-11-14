@@ -116,6 +116,18 @@ curl -X POST http://localhost:3456/api/content/:contentId/approve \
 | PATCH | `/api/ideas/:ideaId` | Edit an idea |
 | POST | `/api/ideas/:ideaId/generate` | Generate a video from an idea |
 
+### Topics, daily video and progress (Curious Files fork)
+
+| Method | Route | Purpose |
+| --- | --- | --- |
+| GET | `/api/topics` | Current shortlist, tomorrow's date, daily-video settings and build state |
+| POST | `/api/topics/refresh` | Rebuild the trending-topic shortlist in the background |
+| POST | `/api/topics/:ideaId/pick` | Pick a topic for tomorrow (or `{"date":"YYYY-MM-DD"}`); one per date |
+| POST | `/api/topics/:ideaId/unpick` | Remove a pick |
+| POST | `/api/daily-video/settings` | `{"enabled":true,"buildTime":"06:00"}` turn the daily build on/off and set its local time |
+| POST | `/api/daily-video/run` | Make today's daily video now (never publishes) |
+| GET | `/api/progress` | Live progress of topic refresh, video builds and uploads |
+
 ### Content review and publishing
 
 | Method | Route | Purpose |

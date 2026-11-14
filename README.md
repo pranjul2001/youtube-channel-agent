@@ -1,5 +1,16 @@
 # YouTube Automation Agent
 
+> **This is the Curious Files fork.** It makes one calm, sourced documentary video a day from a trending-topic list the owner picks from, uploads it to YouTube as **private**, and leaves publishing to the owner.
+> - **Owner's guide (plain English):** [OWNER-GUIDE.md](OWNER-GUIDE.md): daily timeline, where things are, what to do when something fails.
+> - **How it works:** [ARCHITECTURE.md](ARCHITECTURE.md) · decisions in [docs/adr](docs/adr) · changes in [CHANGELOG.md](CHANGELOG.md#curious-files-fork).
+> - **What this fork adds:**
+>   - timed narration with burned-in subtitles
+>   - motion-documentary visuals (maps, cards, archive and NASA images, vetted stock footage)
+>   - a weekly trending-topic list and automatic, fact-checked scripts
+>   - a daily build that runs on GitHub Actions, and a live progress panel
+>
+> The rest of this README describes the upstream project, which this fork builds on.
+
 **The open-source AI agent that runs a YouTube channel end to end, with you approving every video before it goes out.**
 
 It researches topics, writes scripts, generates narration and visuals, assembles real MP4s, writes titles, descriptions and tags, schedules approved videos, and learns from analytics and from what your audience says. It runs on your own machine with your own API keys.
@@ -100,7 +111,7 @@ Each item links to its walkthrough in the [feature guide](docs/features.md).
 
 One key gets you started. Pick a text provider in the walkthrough: Gemini, OpenAI, OpenRouter (400+ models, including Claude), Kimi, MiMo, GLM, DeepSeek, or MiniMax. Gemini has free tiers for text and narration.
 
-- **Narration** comes from ElevenLabs, OpenAI, or Gemini, in that order of preference. A video without working narration can't be approved.
+- **Narration** comes from ElevenLabs, OpenAI, or Gemini (`TTS_PROVIDER` pins one; `auto` prefers them in that order). This fork narrates with Gemini in chunks with a spoken-style direction, times every sentence for subtitles, and falls back across Gemini voice models (`narration_models`). A video without working narration can't be approved.
 - **Images** come from OpenAI or Gemini, each falling back to the other.
 - **Video** is a free local slideshow by default. Choose Seedance, MiniMax H3, Gemini Omni, Kling, or Wan for generated clips and set a cap on paid seconds; if a provider fails, the video falls back to the slideshow.
 
@@ -121,12 +132,21 @@ The scheduler starts with `npm start` and uses the server's local time.
 
 Details are in the [feature guide](docs/features.md#automation-schedule).
 
+**This fork's daily video** runs separately and never publishes:
+
+| When (India time) | What runs | Where |
+| --- | --- | --- |
+| Sundays 19:30 | Trending-topic list posted as a tick-box issue | GitHub Actions `weekly-topics.yml` |
+| Daily 06:00 | One video from the ticked (or top) topic, uploaded as private | GitHub Actions `daily-video.yml` |
+| Every 5 minutes | Daily-video clock (when "Make one video every day" is on) | Local server, Topics page |
+
 ## Docs
 
 - [Feature guide](docs/features.md): a walkthrough of every studio and gate.
 - [AI providers](docs/providers.md): text, narration, image, and video providers with keys and limits.
 - [API reference](docs/api.md): every HTTP route the dashboard server exposes, for example `POST /generate` with `x-api-key`.
 - [Troubleshooting](docs/troubleshooting.md): fixes for setup, sign-in, and generation problems.
+- [Owner's guide](OWNER-GUIDE.md) and [architecture](ARCHITECTURE.md) for this fork.
 - [Changelog](CHANGELOG.md) and [releases](https://github.com/darkzOGx/youtube-automation-agent/releases).
 
 The three problems people hit most:

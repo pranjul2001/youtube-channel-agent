@@ -18,7 +18,7 @@ const STOP = new Set(('the a an and or of to in on at for with by from as is was
   'his her we you our your not no but so if then than into over about after before what which who why how when where while had has have also more most ' +
   'about around roughly nearly almost some many much very still only just each every other another first second later early').split(' '));
 
-const norm = text => String(text || '').toLowerCase().replace(/[’']/g, '').replace(/(\d)[,  ](?=\d{3}\b)/g, '$1').replace(/[^\p{L}\p{N}.\s]/gu, ' ').replace(/\s+/g, ' ');
+const norm = text => String(text || '').toLowerCase().replace(/[’']/g, '').replace(/(\d)[,\u202f\u00a0](?=\d{3}\b)/g, '$1').replace(/[^\p{L}\p{N}.\s]/gu, ' ').replace(/\s+/g, ' ');
 const WORD_NUMBERS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14,
   fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90 };
 

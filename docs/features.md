@@ -17,6 +17,7 @@ Detailed walkthroughs of each part of YouTube Automation Agent. For installation
 - [Audience Engagement Studio](#audience-engagement-studio)
 - [Automation schedule](#automation-schedule)
 - [Activation measurement and privacy](#activation-measurement-and-privacy)
+- [Daily documentary video (Curious Files fork)](#daily-documentary-video-curious-files-fork)
 
 Review Studio, mentioned throughout, is the **Content review** panel for each video.
 
@@ -153,3 +154,32 @@ Recommendations require at least two real measurements, and format or style comp
 The dashboard calculates setup, first-real-MP4, approval, publication, and repeat-generation milestones locally from SQLite and files on disk. A video counts only when a non-simulated `.mp4` with an MP4 container signature still exists.
 
 Anonymous milestone reporting is disabled by default and has no built-in collector. It activates only when you explicitly set both `ANONYMOUS_TELEMETRY_ENABLED` and `ANONYMOUS_TELEMETRY_ENDPOINT`. The allowlisted payload contains the milestone name and time, YouTube Automation Agent version, OS family, Node major version, and a random installation ID. It never includes credentials, channel data, prompts, topics, titles, filenames, or video contents.
+
+
+## Daily documentary video (Curious Files fork)
+
+The owner's view is in [OWNER-GUIDE.md](../OWNER-GUIDE.md), and the design is in [ARCHITECTURE.md](../ARCHITECTURE.md).
+
+- **Topics:**
+  - The **Topics** page (or the weekly GitHub issue) lists 10–18 trending topics.
+  - Each is tagged *Fits: series* or *Wildcard*, and marked *Trending* only when the trend really is its subject.
+  - Pick one per day. With no pick, the top topic is made.
+- **Automatic script:** researched from Wikipedia and written as a story. Every claim's numbers and key words, and every spoken number, must be found in the sources. Problems go back to the AI for up to three drafts. What still fails is flagged *NEEDS YOUR CHECK* in the script's fact-check table and on the Evidence desk.
+- **Narration and subtitles:**
+  - The script is voiced in chunks with a calm-male style direction.
+  - Pauses detected in the audio give every sentence its real time.
+  - Subtitles are burned in and uploaded as a caption track.
+- **Visuals:** beats of 4–10 seconds, each one of:
+  - vetted stock footage
+  - a Commons or NASA image with slow motion
+  - an animated Natural Earth map
+  - a date or figure card
+
+  Chapter cards open each section. On-screen words must repeat the narration.
+- **Thumbnail:** the clearest real frame plus a few words from the title or opening. No hype words.
+- **Daily build:**
+  - Turned on with *Make one video every day*; it starts at the build time (default 06:00, channel time zone).
+  - It catches up if the machine was asleep, and recovers after a restart.
+  - It never publishes.
+- **Progress panel:** a live bar at the top of the dashboard for topic refresh, video builds and uploads.
+- **GitHub Actions:** `weekly-topics.yml` (Sundays) and `daily-video.yml` (daily) run the same pipeline in the cloud and upload as private. See [ADR 0003](adr/0003-daily-video-on-github-actions.md).

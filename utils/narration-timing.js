@@ -15,7 +15,7 @@ function splitSentences(text) {
   if (!source) return [];
   const sentences = [];
   let current = '';
-  const parts = source.split(/(?<=[.!?…]["'”’)\]]?)\s+(?=["'“‘(\[]?[A-Z0-9])/);
+  const parts = source.split(/(?<=[.!?…]["'”’)\]]?)\s+(?=["'“‘([]?[A-Z0-9])/);
   for (const [index, part] of parts.entries()) {
     current = current ? `${current} ${part}` : part;
     const lastWord = (current.match(/([A-Za-z.]+)[.]["'”’)\]]?$/) || [])[1] || '';
