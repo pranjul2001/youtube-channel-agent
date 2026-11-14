@@ -1,0 +1,93 @@
+name: Daily video
+
+# Every morning at 06:00 India time: make one video from the ticked topic (or the top one),
+# upload it to YouTube as PRIVATE, and comment on the topic issue. The owner reviews it in
+# YouTube Studio and makes it public there. Also runs on demand from the Actions tab.
+on:
+  schedule:
+    - cron: '30 0 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Make another video even if one was made today'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: daily-video
+  cancel-in-progress: false
+
+jobs:
+  video:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Fonts for cards and subtitles
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq fonts-liberation fonts-dejavu-core fontconfig >/dev/null
+          mkdir -p ~/.config/fontconfig
+          cat > ~/.config/fontconfig/fonts.conf <<'XML'
+          <?xml version="1.0"?><!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+          <fontconfig>
+            <alias><family>Helvetica Neue</family><prefer><family>Liberation Sans</family></prefer></alias>
+            <alias><family>Helvetica</family><prefer><family>Liberation Sans</family></prefer></alias>
+            <alias><family>Arial</family><prefer><family>Liberation Sans</family></prefer></alias>
+            <alias><family>Georgia</family><prefer><family>Liberation Serif</family></prefer></alias>
+          </fontconfig>
+          XML
+          fc-cache -f >/dev/null
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Secrets to files
+        env:
+          ENV_FILE: ${{ secrets.ENV_FILE }}
+          CREDENTIALS_JSON: ${{ secrets.CREDENTIALS_JSON }}
+          TOKENS_JSON: ${{ secrets.TOKENS_JSON }}
+        run: |
+          test -n "$ENV_FILE" && test -n "$CREDENTIALS_JSON" && test -n "$TOKENS_JSON" || { echo "Missing secrets ENV_FILE, CREDENTIALS_JSON or TOKENS_JSON"; exit 1; }
+          printf '%s\n' "$ENV_FILE" > .env
+          printf '%s' "$CREDENTIALS_JSON" > config/credentials.json
+          printf '%s' "$TOKENS_JSON" > config/tokens.json
+          chmod 600 .env config/credentials.json config/tokens.json
+
+      - name: Reuse downloaded stock clips and images
+        uses: actions/cache@v4
+        with:
+          path: |
+            data/videos/stock-cache
+            data/media-cache
+          key: media-${{ github.run_id }}
+          restore-keys: media-
+
+      - name: Make the video and upload it as private
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          FORCE_RUN: ${{ inputs.force && 'true' || 'false' }}
+          SUBTITLE_FONTS_DIR: /usr/share/fonts/truetype/liberation
+        run: node scripts/ci/daily.js
+
+      - name: Save script and history
+        if: always()
+        run: |
+          git config user.name "curious-files-bot"
+          git config user.email "curious-files-bot@users.noreply.github.com"
+          git add state/history.json docs/scripts/auto 2>/dev/null || true
+          git diff --cached --quiet || { git commit -m "chore: daily video $(TZ=Asia/Kolkata date +%F)" && git push; }
+
+      - name: Remove secrets
+        if: always()
+        run: rm -f .env config/credentials.json config/tokens.json

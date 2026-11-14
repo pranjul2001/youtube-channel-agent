@@ -88,7 +88,8 @@ class SystemTest {
       { name: 'Topic Shortlist Follows the Channel Bible', test: () => this.testTopicCurator() },
       { name: 'Automatic Script Is Checked Against Its Sources', test: () => this.testDocumentaryScriptWriter() },
       { name: 'Daily Video Builds Once a Day and Never Publishes', test: () => this.testDailyVideoService() },
-      { name: 'Live Progress Tracker', test: () => this.testProgressTracker() }
+      { name: 'Live Progress Tracker', test: () => this.testProgressTracker() },
+      { name: 'Cloud Topic Issue: Ticks Pick the Video', test: () => this.testCloudTopicIssue() }
     ];
 
     let passed = 0;
@@ -4387,6 +4388,28 @@ class SystemTest {
     now += 16 * 60 * 1000;
     if (tracker.list().length) throw new Error('Finished tasks must disappear after a while');
     if (tracker.ensure('video', 'A').startedAt !== tracker.ensure('video', 'B').startedAt) throw new Error('ensure must not restart a running task');
+  }
+
+  async testCloudTopicIssue() {
+    const { issueBody, parseIssue, chooseTopic } = require('./scripts/ci/common');
+    const topics = [
+      { n: 1, topic: 'The Last Voyage of the SS United States', why: 'A liner in the news.', tag: 'True stories', wikipedia: 'SS United States', trending: true },
+      { n: 2, topic: 'How Octopuses Think', why: 'Evergreen pick.', tag: 'Wildcard', wikipedia: 'Octopus', trending: false },
+      { n: 3, topic: 'The Edmund Fitzgerald', why: 'A famous wreck.', tag: 'Mysteries', wikipedia: 'SS Edmund Fitzgerald', trending: true }
+    ];
+    const body = issueBody(topics, '2026-11-15');
+    if (!/PRIVATE/.test(body) || !/- \[ \] \*\*How Octopuses Think\*\* · Wildcard/.test(body)) throw new Error('Issue must explain private uploads and list topics as tick boxes');
+    let parsed = parseIssue(body);
+    if (parsed.length !== 3 || parsed.some(t => t.checked)) throw new Error('Fresh list must have no ticks');
+    if (chooseTopic(parsed).n !== 1) throw new Error('With no tick, the top topic is made');
+    // The owner ticks topic 2 on GitHub (the app rewrites "[ ]" to "[x]" on that line).
+    const ticked = body.replace('- [ ] **How Octopuses Think**', '- [x] **How Octopuses Think**');
+    parsed = parseIssue(ticked);
+    if (chooseTopic(parsed).n !== 2) throw new Error('The ticked topic must be made');
+    if (chooseTopic(parsed, ['How octopuses think']).n !== 1) throw new Error('A topic already made must not be made again');
+    if (parseIssue('no data here').length !== 0) throw new Error('A body without topic data has no topics');
+    const daily = require('fs').readFileSync(require.resolve('./scripts/ci/daily.js'), 'utf8');
+    if (!/privacyStatus: 'private'/.test(daily) || /privacyStatus: '(public|unlisted)'/.test(daily)) throw new Error('Cloud uploads must always be private');
   }
 
   async testLoopedVideoIsBounded() {

@@ -1,0 +1,52 @@
+name: Weekly topics
+
+# Every Sunday at 19:30 India time: post a new list of trending topics as an issue with tick
+# boxes. The owner ticks one each night for the next morning's video. Also runs on demand.
+on:
+  schedule:
+    - cron: '0 14 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: weekly-topics
+  cancel-in-progress: false
+
+jobs:
+  topics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Secrets to files
+        env:
+          ENV_FILE: ${{ secrets.ENV_FILE }}
+          CREDENTIALS_JSON: ${{ secrets.CREDENTIALS_JSON }}
+          TOKENS_JSON: ${{ secrets.TOKENS_JSON }}
+        run: |
+          test -n "$ENV_FILE" && test -n "$CREDENTIALS_JSON" || { echo "Missing secrets ENV_FILE or CREDENTIALS_JSON"; exit 1; }
+          printf '%s\n' "$ENV_FILE" > .env
+          printf '%s' "$CREDENTIALS_JSON" > config/credentials.json
+          printf '%s' "${TOKENS_JSON:-{}}" > config/tokens.json
+          chmod 600 .env config/credentials.json config/tokens.json
+
+      - name: Post the topic list
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/ci/topics.js
+
+      - name: Remove secrets
+        if: always()
+        run: rm -f .env config/credentials.json config/tokens.json

@@ -98,3 +98,6 @@ data/thumbnails/
 *.key
 output/
 data/media-cache/
+data/scripts-generated/
+data/ci.db
+data/*.db
