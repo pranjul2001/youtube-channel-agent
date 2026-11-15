@@ -4207,8 +4207,11 @@ class SystemTest {
     const script = { title: 'The Vanishing at Flannan Isles: Fact and Folklore', hook: { text: 'Three keepers vanished in 1900.' } };
     const hype = await thumbnailText(script, { isAvailable: () => true, generateText: async () => '{"line1":"MUST WATCH","line2":"GHOSTS","sub":""}' });
     if (/must|ghost/i.test(`${hype.line1} ${hype.line2}`) || !/Flannan/i.test(`${hype.line1} ${hype.line2}`)) throw new Error('Hype or invented thumbnail text must be rejected');
-    const honest = await thumbnailText(script, { isAvailable: () => true, generateText: async () => '{"line1":"Keepers","line2":"Vanished","sub":"Flannan Isles, 1900"}' });
-    if (honest.line2 !== 'Vanished' || honest.sub !== 'Flannan Isles, 1900') throw new Error('Grounded thumbnail text must be kept');
+    const honest = await thumbnailText(script, { isAvailable: () => true, generateText: async () => '{"line1":"Vanished on","line2":"Flannan Isles","sub":"1900"}' });
+    if (honest.line2 !== 'Flannan Isles' || honest.sub !== '1900') throw new Error('Grounded thumbnail text that names the subject must be kept');
+    const nvidia = { title: 'Inside Nvidia: The Rise of Graphics Processing Units', hook: { text: "Nvidia began in a Denny's diner and grew into a trillion dollar company." } };
+    const awkward = await thumbnailText(nvidia, { isAvailable: () => true, generateText: async () => '{"line1":"A Diner","line2":"Trillion Dollar Rise","sub":""}' });
+    if (/Diner/.test(awkward.line1) || !/Nvidia/.test(`${awkward.line1} ${awkward.line2}`)) throw new Error('Thumbnail text that does not name the subject must be rejected');
 
     // Publishing never uploads a stand-in thumbnail.
     const { PublishingSchedulingAgent } = require('./agents/publishing-scheduling-agent');
@@ -4398,7 +4401,7 @@ class SystemTest {
       { n: 3, topic: 'The Edmund Fitzgerald', why: 'A famous wreck.', tag: 'Mysteries', wikipedia: 'SS Edmund Fitzgerald', trending: true }
     ];
     const body = issueBody(topics, '2026-11-15');
-    if (!/PRIVATE/.test(body) || !/- \[ \] \*\*How Octopuses Think\*\* · Wildcard/.test(body)) throw new Error('Issue must explain private uploads and list topics as tick boxes');
+    if (!/11:59 PM/.test(body) || !/PRIVATE/.test(body) || !/- \[ \] \*\*How Octopuses Think\*\* · Wildcard/.test(body)) throw new Error('Issue must explain private uploads and list topics as tick boxes');
     let parsed = parseIssue(body);
     if (parsed.length !== 3 || parsed.some(t => t.checked)) throw new Error('Fresh list must have no ticks');
     if (chooseTopic(parsed).n !== 1) throw new Error('With no tick, the top topic is made');

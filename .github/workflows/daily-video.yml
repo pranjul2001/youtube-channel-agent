@@ -1,11 +1,16 @@
 name: Daily video
 
-# Every night at 03:00 India time (GitHub often starts scheduled runs late, so this leaves room): make one video from the ticked topic (or the top one),
-# upload it to YouTube as PRIVATE, and comment on the topic issue. The owner reviews it in
-# YouTube Studio and makes it public there. Also runs on demand from the Actions tab.
+# Owner ticks a topic by 11:59 PM; if none is ticked, the best available (top unmade) topic is
+# used. The video process starts at 06:00 India time and should be on YouTube (private) by noon.
+# GitHub does not guarantee start times (runs can start hours late), so there are backup
+# starts at 07:30, 09:00 and 10:30: the first run that starts makes the video, and later ones
+# see today's video in state/history.json and stop. A video takes about 35 minutes.
 on:
   schedule:
-    - cron: '30 21 * * *'
+    - cron: '30 0 * * *'   # 06:00 IST
+    - cron: '0 2 * * *'    # 07:30 IST (backup)
+    - cron: '30 3 * * *'   # 09:00 IST (backup)
+    - cron: '0 5 * * *'    # 10:30 IST (backup)
   workflow_dispatch:
     inputs:
       force:

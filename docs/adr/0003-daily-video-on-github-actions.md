@@ -24,7 +24,7 @@ Hosting options considered:
 - **Daily build:** `DailyVideoService` reuses the hand-written-script path (`importScript` → resume job), so automatic and approved scripts produce videos the same way. It never publishes.
 - **Runner:** GitHub Actions.
   - `weekly-topics.yml` posts the list as a tick-box issue.
-  - `daily-video.yml` makes the ticked topic (or the top one) from 03:00 IST (moved from 06:00 because scheduled runs often start hours late) and uploads it to YouTube as **private** only.
+  - `daily-video.yml` makes the topic ticked by 23:59 IST (else the best available) starting 06:00 IST, with backup starts at 07:30, 09:00 and 10:30 because scheduled runs can start hours late; the first run makes the video and later ones stop, so it is ready by noon and uploads it to YouTube as **private** only.
   - It then comments with the Studio link, the script link and the facts to check, and commits the script and `state/history.json`.
   - The owner reviews and publishes in YouTube Studio. Uploading private is not publishing: the bible says "uploads stay private until approved".
 - **Secrets:** `ENV_FILE`, `CREDENTIALS_JSON` and `TOKENS_JSON` are set with `gh secret set` straight from local files, so values never appear in chat or logs. They are written to disk only during a run and then deleted.

@@ -28,9 +28,9 @@ const DATA_RE = /<!-- topics-data: ([A-Za-z0-9+/=]+) -->/;
 
 function issueBody(topics, weekOf) {
   const lines = [
-    `Pick tomorrow's video by **ticking one box** (on github.com or in the GitHub app). If nothing is ticked, the top topic that hasn't been made is used.`,
+    `Pick tomorrow's video by **ticking one box by 11:59 PM** (on github.com or in the GitHub app). If nothing is ticked, the best available topic (the highest one not yet made) is used.`,
     '',
-    `Each morning a video is made and uploaded to YouTube as **PRIVATE**. Watch it in YouTube Studio, then make it public yourself when you are happy with it. A comment appears here when each video is ready.`,
+    `The video is made from **6:00 AM** and uploaded to YouTube as **PRIVATE**, normally **by 12:00 noon**. A comment appears here when it is ready. Watch it in YouTube Studio, then make it public yourself when you are happy with it.`,
     '',
     `_List made ${weekOf} from Google Trends, Wikipedia's most-read pages and YouTube trending. "Fits" = one of your series, "Wildcard" = outside them._`,
     '',

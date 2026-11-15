@@ -4,7 +4,11 @@
 
 Changes on branch `channel`, newest first. Upstream entries follow below.
 
-- **Daily cloud run moved to 03:00 IST** (2026-11-15): GitHub started the 06:00 run about 6 hours late.
+- **Owner timeline** (2026-11-15):
+  - Tick by 11:59 PM; otherwise the best available topic is made.
+  - Start at 06:00 IST, with backup starts at 07:30, 09:00 and 10:30 because GitHub can start runs hours late.
+  - Private upload by noon.
+- **Clearer thumbnail text:** a natural 2–4 word phrase that names the subject ("A Diner Trillion Dollar Rise" would now be rejected).
 - **First cloud run (2026-11-14):** made and privately uploaded "From Ranch Chores to Arena Glory: The Evolution of Rodeo" (7:24). The save step now rebases before pushing, so commits made during a run no longer block it.
 - **Daily video on GitHub Actions** ([ADR 0003](docs/adr/0003-daily-video-on-github-actions.md)):
   - a weekly trending-topic issue the owner ticks
