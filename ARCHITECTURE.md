@@ -11,7 +11,7 @@ flowchart TD
     T2 --> T3[GitHub issue<br/>tick-box list, label 'topics']
   end
   Owner((Owner)) -- ticks one topic each night --> T3
-  subgraph Daily["Daily video workflow (06:00 IST)"]
+  subgraph Daily["Daily video workflow (03:00 IST)"]
     D1[scripts/ci/daily.js<br/>choose ticked topic, else top] --> D2[Start app on 127.0.0.1<br/>fresh DB from config/channel-seed.json]
     D2 --> D3[DailyVideoService.runDaily]
     D3 --> W[DocumentaryScriptWriter<br/>Wikipedia research → script<br/>claim + number check, copy check]

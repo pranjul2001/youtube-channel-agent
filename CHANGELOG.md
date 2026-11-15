@@ -4,6 +4,7 @@
 
 Changes on branch `channel`, newest first. Upstream entries follow below.
 
+- **Daily cloud run moved to 03:00 IST** (2026-11-15): GitHub started the 06:00 run about 6 hours late.
 - **First cloud run (2026-11-14):** made and privately uploaded "From Ranch Chores to Arena Glory: The Evolution of Rodeo" (7:24). The save step now rebases before pushing, so commits made during a run no longer block it.
 - **Daily video on GitHub Actions** ([ADR 0003](docs/adr/0003-daily-video-on-github-actions.md)):
   - a weekly trending-topic issue the owner ticks

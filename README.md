@@ -137,7 +137,7 @@ Details are in the [feature guide](docs/features.md#automation-schedule).
 | When (India time) | What runs | Where |
 | --- | --- | --- |
 | Sundays 19:30 | Trending-topic list posted as a tick-box issue | GitHub Actions `weekly-topics.yml` |
-| Daily 06:00 | One video from the ticked (or top) topic, uploaded as private | GitHub Actions `daily-video.yml` |
+| Daily 03:00 (often starts late) | One video from the ticked (or top) topic, uploaded as private | GitHub Actions `daily-video.yml` |
 | Every 5 minutes | Daily-video clock (when "Make one video every day" is on) | Local server, Topics page |
 
 ## Docs

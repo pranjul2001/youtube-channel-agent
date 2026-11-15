@@ -8,8 +8,8 @@ How the channel's videos get made, what happens automatically, and the few thing
 | --- | --- | --- |
 | **Sunday, 7:30 pm** | GitHub finds what is trending (Google Trends, Wikipedia's most-read pages, YouTube trending) and posts a list of 10–14 video topics on the repo's **Issues** page. Topics you haven't used carry over. | Nothing |
 | **Each night** | — | **Tick one topic** for the next morning. Optional: if nothing is ticked, the top unused topic is made. |
-| **Next morning, about 6:00–6:45** | GitHub researches the topic on Wikipedia, writes the script, checks every fact and number against the sources, records the voice, builds the video, and **uploads it to YouTube as PRIVATE**. The video has subtitles, maps, date cards, archive or NASA images, stock footage and a thumbnail. | Nothing |
-| **About 7:00** | GitHub comments on the topic list, which sends you an email or app notification. The comment links to the video in YouTube Studio and to the script and fact check, and lists any facts you should check. | — |
+| **Overnight, from 3:00 am** (GitHub sometimes starts a few hours late) | GitHub researches the topic on Wikipedia, writes the script, checks every fact and number against the sources, records the voice, builds the video, and **uploads it to YouTube as PRIVATE**. The video has subtitles, maps, date cards, archive or NASA images, stock footage and a thumbnail. | Nothing |
+| **When it's done, usually by morning** | GitHub comments on the topic list, which sends you an email or app notification. The comment links to the video in YouTube Studio and to the script and fact check, and lists any facts you should check. | — |
 | **Whenever you like** | — | Watch the video and read the flagged facts. If you are happy, set it to **Public** (or schedule it) in YouTube Studio. If not, leave it private or delete it. |
 
 **Nothing is ever made public automatically.** Publishing is always your click in YouTube Studio.
