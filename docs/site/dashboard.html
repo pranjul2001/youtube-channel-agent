@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Curious Files — Channel Overview</title>
+<meta name="description" content="Live overview of the Curious Files automated channel: every video made, with dates, topics and links.">
+<style>
+  :root{
+    --bg:#0b0f16; --panel:#141b26; --ink:#eaf0f8; --muted:#92a0b4; --line:#223044;
+    --accent:#e9b949; --good:#4bbe85; --live:#4bbe85;
+    --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --serif:Georgia,"Times New Roman",serif;
+    color-scheme:dark;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);line-height:1.5}
+  .wrap{max-width:900px;margin:0 auto;padding:28px 20px 72px}
+  header{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:22px}
+  .kicker{font-size:.72rem;letter-spacing:.22em;text-transform:uppercase;color:var(--accent);font-weight:700}
+  h1{font-family:var(--serif);font-size:clamp(1.5rem,5vw,2.1rem);margin:.2em 0 0}
+  .updated{font-size:.8rem;color:var(--muted);display:flex;align-items:center;gap:7px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--live);box-shadow:0 0 0 0 rgba(75,190,133,.6);animation:pulse 2s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(75,190,133,.5)}70%{box-shadow:0 0 0 7px rgba(75,190,133,0)}100%{box-shadow:0 0 0 0 rgba(75,190,133,0)}}
+  button{font:600 .82rem var(--font);color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 13px;cursor:pointer}
+  button:hover{border-color:var(--accent)}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}
+  @media(max-width:620px){.stats{grid-template-columns:repeat(2,1fr)}}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px}
+  .stat b{display:block;font-size:1.9rem;font-variant-numeric:tabular-nums;line-height:1}
+  .stat span{font-size:.72rem;color:var(--muted);letter-spacing:.05em;text-transform:uppercase}
+  .spark{display:flex;align-items:flex-end;gap:3px;height:40px;margin:22px 0 26px}
+  .spark i{flex:1;background:linear-gradient(180deg,var(--accent),#8a6a1e);border-radius:2px 2px 0 0;min-height:3px;opacity:.85}
+  h2{font-size:1.05rem;margin:0 0 12px;display:flex;align-items:center;gap:8px}
+  .count{font-size:.74rem;color:var(--muted);font-weight:400}
+  .list{display:flex;flex-direction:column;gap:10px}
+  .vid{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap}
+  .vid .date{min-width:92px;color:var(--muted);font-size:.8rem;font-variant-numeric:tabular-nums}
+  .vid .main{flex:1;min-width:200px}
+  .vid .title{font-weight:700;font-size:1rem;margin:0 0 3px}
+  .vid .meta{font-size:.8rem;color:var(--muted)}
+  .vid .meta a{color:var(--muted)}
+  .badge{font-size:.62rem;letter-spacing:.08em;text-transform:uppercase;font-weight:700;padding:2px 7px;border-radius:99px;background:rgba(233,185,73,.16);color:var(--accent);white-space:nowrap}
+  .links{display:flex;gap:8px;flex-wrap:wrap}
+  .links a{font-size:.78rem;font-weight:600;text-decoration:none;color:#1a1c22;background:var(--accent);padding:6px 11px;border-radius:7px}
+  .links a.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+  .note{margin-top:26px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;font-size:.85rem;color:var(--muted)}
+  .note b{color:var(--ink)}
+  .msg{padding:40px 10px;text-align:center;color:var(--muted)}
+  footer{margin-top:30px;color:var(--muted);font-size:.78rem;text-align:center}
+  footer a{color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <div class="kicker">Curious Files</div>
+      <h1>Channel Overview</h1>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
+      <button id="refresh">↻ Refresh</button>
+      <div class="updated"><span class="dot"></span><span id="updated">loading…</span></div>
+    </div>
+  </header>
+
+  <div class="stats" id="stats"></div>
+  <div class="spark" id="spark" title="videos over time"></div>
+
+  <h2>Videos <span class="count" id="count"></span></h2>
+  <div class="list" id="list"><div class="msg">Loading your channel history…</div></div>
+
+  <div class="note">
+    <b>About view counts & analytics:</b> videos are uploaded <b>private</b>, so public view stats aren't available yet.
+    Once you make them public, detailed analytics (views, watch time, subscribers) live in <a href="https://studio.youtube.com" style="color:var(--accent)">YouTube Studio</a>.
+    This page tracks everything the automated channel has produced, and updates after each daily run.
+  </div>
+
+  <footer>Live data from the channel's build history · auto-updates after every run</footer>
+</div>
+
+<script>
+  const RAW = 'https://raw.githubusercontent.com/pranjul2001/youtube-channel-agent/channel/state/history.json';
+  const fmt = s => { try { return new Date(s+'T00:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'}); } catch(e){ return s; } };
+  const daysBetween = (a,b) => Math.round((new Date(b)-new Date(a))/86400000);
+
+  function render(videos){
+    videos = (videos||[]).slice().sort((a,b)=> (a.date<b.date?1:-1));
+    document.getElementById('updated').textContent = 'updated ' + new Date().toLocaleString(undefined,{hour:'2-digit',minute:'2-digit',day:'numeric',month:'short'});
+    document.getElementById('count').textContent = videos.length ? '· '+videos.length+' total' : '';
+
+    // stats
+    const now = new Date();
+    const week = videos.filter(v => daysBetween(v.date, now) <= 7).length;
+    const month = videos.filter(v => daysBetween(v.date, now) <= 30).length;
+    const latest = videos[0] ? fmt(videos[0].date) : '—';
+    const stats = [
+      ['📼', videos.length, 'Total videos'],
+      ['🗓️', week, 'Last 7 days'],
+      ['📈', month, 'Last 30 days'],
+      ['🆕', latest, 'Latest']
+    ];
+    document.getElementById('stats').innerHTML = stats.map(([i,v,l]) =>
+      `<div class="stat"><b>${typeof v==='number'?v:`<span style="font-size:1rem">${v}</span>`}</b><span>${l}</span></div>`).join('');
+
+    // sparkline: videos per day over the last 21 days
+    const days = 21, counts = [];
+    for(let d=days-1; d>=0; d--){ const day = new Date(now); day.setDate(day.getDate()-d); const key = day.toISOString().slice(0,10); counts.push(videos.filter(v=>v.date===key).length); }
+    const max = Math.max(1, ...counts);
+    document.getElementById('spark').innerHTML = counts.map(c=>`<i style="height:${Math.round(c/max*100)}%;opacity:${c?0.9:0.25}"></i>`).join('');
+
+    // list
+    if(!videos.length){ document.getElementById('list').innerHTML = '<div class="msg">No videos yet — the first one lands at the next morning run.</div>'; return; }
+    document.getElementById('list').innerHTML = videos.map(v => {
+      const id = v.youtubeId;
+      const wiki = v.wikipedia ? `· <a href="https://en.wikipedia.org/wiki/${encodeURIComponent(v.wikipedia)}" target="_blank" rel="noopener">source</a>` : '';
+      const studio = id ? `<a href="https://studio.youtube.com/video/${id}/edit" target="_blank" rel="noopener">YouTube Studio</a>` : '';
+      const watch = id ? `<a class="ghost" href="https://youtube.com/watch?v=${id}" target="_blank" rel="noopener">Watch</a>` : '';
+      return `<div class="vid">
+        <div class="date">${fmt(v.date)}</div>
+        <div class="main">
+          <p class="title">${esc(v.title||v.topic||'Untitled')}</p>
+          <div class="meta">${esc(v.topic&&v.topic!==v.title?v.topic:'')} ${wiki}</div>
+        </div>
+        <span class="badge">${esc((v.privacy||'private'))}</span>
+        <div class="links">${studio}${watch}</div>
+      </div>`;
+    }).join('');
+  }
+  function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  async function load(){
+    try{
+      const r = await fetch(RAW + '?t=' + Date.now(), {cache:'no-store'});
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      const d = await r.json();
+      render(d.videos||[]);
+    }catch(e){
+      document.getElementById('list').innerHTML = '<div class="msg">Couldn\'t load the history right now ('+esc(e.message)+'). Try Refresh in a moment.</div>';
+      document.getElementById('updated').textContent = 'offline';
+    }
+  }
+  document.getElementById('refresh').onclick = load;
+  load();
+</script>
+</body>
+</html>
