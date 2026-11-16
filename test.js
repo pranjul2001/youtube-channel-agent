@@ -4413,6 +4413,25 @@ class SystemTest {
     if (parseIssue('no data here').length !== 0) throw new Error('A body without topic data has no topics');
     const daily = require('fs').readFileSync(require.resolve('./scripts/ci/daily.js'), 'utf8');
     if (!/privacyStatus: 'private'/.test(daily) || /privacyStatus: '(public|unlisted)'/.test(daily)) throw new Error('Cloud uploads must always be private');
+
+    // Regression: a ticked-but-unmade pick must survive the weekly list refresh (it used to be
+    // carried over as unticked, silently resetting the owner's choice for the next video).
+    const { mergeTopics } = require('./scripts/ci/common');
+    const prevUnmade = parseIssue(ticked).filter(t => !t.made); // topic 2 (Octopus) is ticked
+    const fresh = [
+      { n: 1, topic: 'A New Trending Thing', why: 'Fresh.', tag: 'Mysteries', wikipedia: 'New Thing', trending: true }
+    ];
+    const merged = mergeTopics(fresh, prevUnmade);
+    const octopus = merged.find(t => t.wikipedia === 'Octopus');
+    if (!octopus || !octopus.checked) throw new Error('A ticked unmade topic must stay ticked after a refresh');
+    if (merged.filter(t => t.checked).length !== 1) throw new Error('Only the owner pick stays ticked after a refresh');
+    if (chooseTopic(merged).wikipedia !== 'Octopus') throw new Error('The carried-over pick must still be chosen after a refresh');
+    const mergedBody = issueBody(merged, '2026-11-22');
+    if (chooseTopic(parseIssue(mergedBody)).wikipedia !== 'Octopus') throw new Error('The tick must round-trip through the rebuilt issue body');
+    // A pick beyond the first 4 unmade topics must not be dropped by the carry-over limit.
+    const many = Array.from({ length: 8 }, (_, i) => ({ n: i + 1, topic: `T${i}`, why: 'x', tag: 'Wildcard', wikipedia: `W${i}`, trending: true, checked: i === 6 }));
+    const keptLate = mergeTopics([], many).find(t => t.wikipedia === 'W6');
+    if (!keptLate || !keptLate.checked) throw new Error('A ticked pick past the carry-over limit must still be kept and ticked');
   }
 
   async testLoopedVideoIsBounded() {

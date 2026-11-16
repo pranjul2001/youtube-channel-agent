@@ -4,6 +4,7 @@
 
 Changes on branch `channel`, newest first. Upstream entries follow below.
 
+- **Ticked pick now survives the weekly list refresh** (2026-11-16): when the Sunday list refresh carried an unmade topic to the new issue, it dropped the owner's tick, silently resetting the next video's topic. Carried-over topics now keep their ticked state (and a ticked pick is kept even past the carry-over limit). Extracted `mergeTopics` with a regression test.
 - **Owner timeline** (2026-11-15):
   - Tick by 11:59 PM; otherwise the best available topic is made.
   - Start at 06:00 IST, with backup starts at 07:30, 09:00 and 10:30 because GitHub can start runs hours late.

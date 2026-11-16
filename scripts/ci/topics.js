@@ -2,7 +2,7 @@
 // Weekly (GitHub Actions): find trending topics and post them as a tick-box issue.
 // The previous week's issue is closed, keeping the topics that were never made.
 require('dotenv').config({ path: require('path').join(__dirname, '..', '..', '.env') });
-const { LABEL, gh, issueBody, parseIssue, openTopicIssue, seededDatabase, history } = require('./common');
+const { LABEL, gh, issueBody, parseIssue, mergeTopics, openTopicIssue, seededDatabase, history } = require('./common');
 
 async function createTopicIssue(db, logger = console) {
   const { TopicCurator } = require('../../utils/topic-curator');
@@ -18,10 +18,8 @@ async function createTopicIssue(db, logger = console) {
   const { topics } = await curator.curate({ limit: 14 });
 
   const previous = await openTopicIssue();
-  const carried = previous ? parseIssue(previous.body).filter(t => !t.made).slice(0, 4) : [];
-  const seen = new Set(topics.map(t => t.wikipedia.toLowerCase()));
-  const all = [...topics, ...carried.filter(t => !seen.has(String(t.wikipedia).toLowerCase()))]
-    .map((t, i) => ({ n: i + 1, topic: t.topic, angle: t.angle, why: t.why, tag: t.tag, wikipedia: t.wikipedia, trending: Boolean(t.trending) }));
+  const prevUnmade = previous ? parseIssue(previous.body).filter(t => !t.made) : [];
+  const all = mergeTopics(topics, prevUnmade);
 
   await gh('/labels', { method: 'POST', body: { name: LABEL, color: 'e2b35e', description: 'Weekly topic shortlist for the daily video' } }).catch(() => {});
   const weekOf = new Date().toISOString().slice(0, 10);

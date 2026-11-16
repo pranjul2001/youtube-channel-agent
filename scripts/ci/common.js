@@ -78,6 +78,18 @@ function chooseTopic(topics, madeTitles = []) {
   return open.find(t => t.checked) || open[0] || null;
 }
 
+// Build the next weekly list: fresh trending topics first, then carried-over unmade topics from
+// the previous list (deduped by article), renumbered from 1. A ticked-but-unmade pick keeps its
+// tick across the refresh and is ordered first among carried topics so slice() can never drop it.
+function mergeTopics(fresh, prevUnmade = [], limit = 4) {
+  const key = t => String(t.wikipedia).toLowerCase();
+  const checkedKeys = new Set(prevUnmade.filter(t => t.checked).map(key));
+  const carried = [...prevUnmade.filter(t => t.checked), ...prevUnmade.filter(t => !t.checked)].slice(0, limit);
+  const seen = new Set(fresh.map(key));
+  return [...fresh, ...carried.filter(t => !seen.has(key(t)))]
+    .map((t, i) => ({ n: i + 1, topic: t.topic, angle: t.angle, why: t.why, tag: t.tag, wikipedia: t.wikipedia, trending: Boolean(t.trending), checked: checkedKeys.has(key(t)) }));
+}
+
 // ----- database and app ----------------------------------------------------------------------
 async function seededDatabase() {
   process.env.YAA_DB_PATH = process.env.YAA_DB_PATH || path.join(ROOT, 'data', 'ci.db');
@@ -136,4 +148,4 @@ async function api(base, route, options = {}) {
   return data.result ?? data;
 }
 
-module.exports = { ROOT, LABEL, gh, issueBody, parseIssue, openTopicIssue, saveIssueTopics, chooseTopic, seededDatabase, history, saveHistory, startApp, api };
+module.exports = { ROOT, LABEL, gh, issueBody, parseIssue, openTopicIssue, saveIssueTopics, chooseTopic, mergeTopics, seededDatabase, history, saveHistory, startApp, api };
