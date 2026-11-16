@@ -8,8 +8,8 @@ How the channel's videos get made, what happens automatically, and the few thing
 | --- | --- | --- |
 | **Sunday, 7:30 pm** | GitHub finds what is trending (Google Trends, Wikipedia's most-read pages, YouTube trending) and posts a list of 10–14 video topics on the repo's **Issues** page. Topics you haven't used carry over. | Nothing |
 | **Each night, by 11:59 pm** | — | **Tick one topic** for the next day. Optional: if nothing is ticked by then, the best available topic (the highest one not yet made) is made. |
-| **From 6:00 am** (backup starts at 7:30, 9:00 and 10:30 in case GitHub starts late) | GitHub researches the topic on Wikipedia, writes the script, checks every fact and number against the sources, records the voice, builds the video, and **uploads it to YouTube as PRIVATE**. The video has subtitles, maps, date cards, archive or NASA images, stock footage and a thumbnail. | Nothing |
-| **By 12:00 noon** (about 35 minutes after the start) | GitHub comments on the topic list, which sends you an email or app notification. The comment links to the video in YouTube Studio and to the script and fact check, and lists any facts you should check. | — |
+| **Around 8:00 am** (a dependable external alarm starts the run; GitHub also tries earlier at 5:30 and 7:00 as a bonus) | GitHub researches the topic on Wikipedia, writes the script, checks every fact and number against the sources, records the voice, builds the video, and **uploads it to YouTube as PRIVATE**. The video has subtitles, maps, date cards, archive or NASA images, stock footage and a thumbnail. | Nothing |
+| **Ready by 10:00 am** (about 35 minutes after the start) | GitHub comments on the topic list, which sends you an email or app notification. The comment links to the video in YouTube Studio and to the script and fact check, and lists any facts you should check. | — |
 | **Whenever you like** | — | Watch the video and read the flagged facts. If you are happy, set it to **Public** (or schedule it) in YouTube Studio. If not, leave it private or delete it. |
 
 **Nothing is ever made public automatically.** Publishing is always your click in YouTube Studio.
@@ -48,6 +48,12 @@ GitHub → repo → **Actions** → **Daily video** → **Run workflow**. To mak
 - Titles and thumbnails must match the video: no "MUST WATCH" or similar hype.
 - Every description has the sources, credits for stock footage and images, and a note that the narration is AI-assisted.
 - Searches for footage reject people, food, tropical scenes and AI-generated clips. Archive photos must name the subject. On-screen text must repeat the narration.
+
+## Ready by 10 am
+
+Your requirement is a finished (private) video waiting by **10:00 am**. GitHub's own timer cannot promise that — its free scheduled runs can start hours late or be skipped entirely (that is what happened on 2026-11-16). So a **dependable outside alarm** starts the run at about **8:00 am** by pressing GitHub's "Run" button for us automatically; a run started this way begins within seconds, and a video takes about 35 minutes, so it is ready well before 10:00. GitHub's own 5:30 and 7:00 timers stay on as bonus early tries. If one run is already made, the others simply stop.
+
+The alarm is a free service set up once ([docs/adr/0004-reliable-morning-trigger.md](docs/adr/0004-reliable-morning-trigger.md) records how and why).
 
 ## Costs
 

@@ -4,6 +4,7 @@
 
 Changes on branch `channel`, newest first. Upstream entries follow below.
 
+- **Ready by 10 AM, dependably** (2026-11-16, [ADR 0004](docs/adr/0004-reliable-morning-trigger.md)): GitHub's free `schedule:` cron proved unreliable (06:00 run was 6.5 h late on 2026-11-15; every slot was skipped on 2026-11-16). The dependable trigger is now an external scheduler calling the workflow via `workflow_dispatch` at 08:00 IST; GitHub's own crons are trimmed to 05:30 and 07:00 as best-effort early tries. Owner-facing text and `OWNER-GUIDE.md` updated to the 10 AM target.
 - **Ticked pick now survives the weekly list refresh** (2026-11-16): when the Sunday list refresh carried an unmade topic to the new issue, it dropped the owner's tick, silently resetting the next video's topic. Carried-over topics now keep their ticked state (and a ticked pick is kept even past the carry-over limit). Extracted `mergeTopics` with a regression test.
 - **Owner timeline** (2026-11-15):
   - Tick by 11:59 PM; otherwise the best available topic is made.
