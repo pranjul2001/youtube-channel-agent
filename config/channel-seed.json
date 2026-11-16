@@ -1,5 +1,5 @@
 {
-  "exportedAt": "2026-11-14T16:16:00.999Z",
+  "exportedAt": "2026-11-16T14:42:46.347Z",
   "settings": {
     "ai_scene_images_max": "0",
     "analytics_enabled": "true",
@@ -32,7 +32,7 @@
     "video_provider": "pixabay",
     "video_provider_order": "seedance,minimax_h3,google_omni,kling,wan,slideshow",
     "video_resolution": "720p",
-    "video_style": "documentary"
+    "video_style": "animation"
   },
   "channelProfiles": [
     {

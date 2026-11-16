@@ -55,6 +55,14 @@ Your requirement is a finished (private) video waiting by **10:00 am**. GitHub's
 
 The alarm is a free service set up once ([docs/adr/0004-reliable-morning-trigger.md](docs/adr/0004-reliable-morning-trigger.md) records how and why).
 
+## The look of your videos
+
+Your channel now makes **animated-illustration** videos: each line of narration is drawn as its own
+scene — a map, a lit city, a sealed document, a fireball, a stat card, turning gears, and so on — so
+the picture always shows what is being said, never random filler. It is all drawn in code (free), with
+a calm voice and clear captions, and a matching thumbnail. Videos run about **10–12 minutes**. This is
+built and tested; it starts being used once the code is deployed to the daily runner.
+
 ## Costs
 
 Everything runs on free tiers: GitHub Actions (about 30–45 of 2,000 free minutes a month per video), Gemini (free text and voice), Pixabay, Wikipedia, NASA, Natural Earth. Paid tools (better voice, AI images or AI video) are optional upgrades for later, within the ₹2,600 a month you set aside.

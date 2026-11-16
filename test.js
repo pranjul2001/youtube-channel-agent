@@ -89,7 +89,8 @@ class SystemTest {
       { name: 'Automatic Script Is Checked Against Its Sources', test: () => this.testDocumentaryScriptWriter() },
       { name: 'Daily Video Builds Once a Day and Never Publishes', test: () => this.testDailyVideoService() },
       { name: 'Live Progress Tracker', test: () => this.testProgressTracker() },
-      { name: 'Cloud Topic Issue: Ticks Pick the Video', test: () => this.testCloudTopicIssue() }
+      { name: 'Cloud Topic Issue: Ticks Pick the Video', test: () => this.testCloudTopicIssue() },
+      { name: 'Animation Scene Kit and Storyboard Brain', test: () => this.testAnimationSceneKit() }
     ];
 
     let passed = 0;
@@ -4432,6 +4433,45 @@ class SystemTest {
     const many = Array.from({ length: 8 }, (_, i) => ({ n: i + 1, topic: `T${i}`, why: 'x', tag: 'Wildcard', wikipedia: `W${i}`, trending: true, checked: i === 6 }));
     const keptLate = mergeTopics([], many).find(t => t.wikipedia === 'W6');
     if (!keptLate || !keptLate.checked) throw new Error('A ticked pick past the carry-over limit must still be kept and ticked');
+  }
+
+  async testAnimationSceneKit() {
+    const { frameSVG, TEMPLATE_NAMES } = require('./utils/animation/scenes');
+    const { buildStoryboard, validateBoard } = require('./utils/animation/storyboard');
+    const script = {
+      title: 'Test Story', subtitle: 'Demo', sourceNote: 'note',
+      loc: { shape: 'M0 0 L10 0 Z', pin: [5, 5], labels: [[1, 1, 'X']] },
+      beats: ['A quiet morning began.', 'A fireball streaked across the sky.', 'The blast flattened the forest.', 'An estimated 80 million trees fell.', 'It was never explained.']
+    };
+    const board = buildStoryboard(script);
+    if (board.length !== 5) throw new Error('Storyboard length must match the script');
+    if (board[0].tpl !== 'opening' || board[4].tpl !== 'closing') throw new Error('First/last beats must be opening/closing');
+    if (board[1].tpl !== 'skyEvent') throw new Error('A fireball line must depict a skyEvent, not a blank card');
+    if (board[2].tpl !== 'explosion') throw new Error('A blast line must depict an explosion');
+    if (board[3].tpl !== 'stat' || board[3].params.number !== '80 million') throw new Error('A number line must become a stat carrying the number');
+    // every beat renders to a full SVG without throwing
+    board.forEach(b => { const svg = frameSVG(b, 500, 1500, 5000); if (!/^<svg[\s>]/.test(svg) || !svg.includes('</svg>')) throw new Error('frameSVG must return a full SVG for ' + b.tpl); });
+    // the narration subject must actually appear burned into its frame
+    if (!frameSVG(board[1], 500, 1500, 5000).includes('fireball')) throw new Error('Caption text must be burned into the frame');
+    // a broken AI board must fall back to the heuristic, never crash a render
+    const safe = validateBoard([{ tpl: 'nonsense' }], script);
+    if (safe.length !== 5 || safe[0].tpl !== 'opening') throw new Error('An invalid AI board must fall back to the heuristic storyboard');
+    if (!TEMPLATE_NAMES.includes('portrait') || !TEMPLATE_NAMES.includes('timeline')) throw new Error('Kit must include the portrait and timeline scenes');
+    // subject scenes: factory/law/skyline lines must depict their subject, not a blank card
+    const extra = buildStoryboard({ title: 'T', beats: ['Intro.', 'The company built a vast factory.', 'A new law was signed that year.', 'The city skyline transformed.', 'End.'] });
+    if (extra[1].tpl !== 'machine') throw new Error('An industry/factory line must depict a machine scene');
+    if (extra[2].tpl !== 'document') throw new Error('A law/signed line must depict a document scene');
+    if (extra[3].tpl !== 'cityscape') throw new Error('A city/skyline line must depict a cityscape scene');
+    const more = buildStoryboard({ title: 'T', beats: ['Intro.', 'Millions of people fled their homes.', 'The forest stretched for miles.', 'End.'] });
+    if (more[1].tpl !== 'crowd') throw new Error('A people/population line must depict a crowd scene');
+    if (more[2].tpl !== 'landscape') throw new Error('A forest/land line must depict a landscape scene');
+    ['cityscape', 'document', 'machine', 'crowd', 'landscape'].forEach(t => { if (!frameSVG({ tpl: t, params: {}, cap: 'x' }, 500, 1500, 5000).includes('</svg>')) throw new Error('New scene must render: ' + t); });
+    // the animated thumbnail renders to a real PNG
+    const { renderThumbnail } = require('./utils/animation/thumbnail');
+    const tmp = require('path').join(require('os').tmpdir(), `anim-thumb-${Date.now()}.png`);
+    await renderThumbnail({ title: 'The Tunguska Event', hint: 'fireball explosion', outputPath: tmp });
+    if (require('fs').statSync(tmp).size < 1000) throw new Error('Animation thumbnail must render to a non-trivial PNG');
+    require('fs').unlinkSync(tmp);
   }
 
   async testLoopedVideoIsBounded() {

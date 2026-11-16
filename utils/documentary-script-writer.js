@@ -117,12 +117,12 @@ Series: ${topic.tag || 'Wildcard'}
 
 STRICT RULES
 - Use ONLY facts found in the SOURCES below. If the sources do not say it, do not say it. No invented numbers, dates, names or quotes.
-- Tell it as a STORY in your own words, the way a thoughtful person explains something fascinating to a friend: curiosity first, then answers. Never copy or lightly reword sentences from the sources, and do not follow their order of sentences. Choose the 12-20 most interesting facts; leave out catalogue detail (model numbers, long lists, minor dates).
+- Tell it as a STORY in your own words, the way a thoughtful person explains something fascinating to a friend: curiosity first, then answers. Never copy or lightly reword sentences from the sources, and do not follow their order of sentences. Choose the 24-36 most interesting facts; leave out catalogue detail (model numbers, long lists, minor dates).
 - Help the listener picture things: compare sizes and speeds to familiar things only when the comparison is simple arithmetic on source facts; otherwise do not compare.
 - Separate clearly, in the wording itself, what is known, what experts believe, and what is speculation or legend.
-- 950 to 1150 spoken words in total. Short, clear sentences for a calm narrator; vary their length. Plain English; explain any technical term in a few words.
+- 1600 to 1900 spoken words in total (about 10 to 12 minutes of narration). Short, clear sentences for a calm narrator; vary their length. Plain English; explain any technical term in a few words.
 - "hook": 2-3 short paragraphs. Open with the single most surprising true fact or an honest question, in under 25 words. Then say, naturally, what the listener will find out. Never write "this video", "in this video" or "we will cover".
-- Then 6 to 8 sections, each with a short title (2-5 words) and 2-4 short paragraphs. End most sections with a sentence that makes the listener want the next part. Choose a structure that suits THIS story (timeline, question and answer, three key moments, myth versus record...), not a fixed template.
+- Then 9 to 12 sections, each with a short title (2-5 words) and 2-4 short paragraphs. End most sections with a sentence that makes the listener want the next part. Choose a structure that suits THIS story (timeline, question and answer, three key moments, myth versus record...), not a fixed template.
 - "closing": 1-2 paragraphs that sum up honestly and leave one thought to remember.
 - No greetings, no "in this video we will", no "smash that like button", no hype, no clickbait. No gore or graphic detail. Respect real people. No medical or financial advice.
 - Write numbers as digits (for example 1912, 3.8, 32,000).

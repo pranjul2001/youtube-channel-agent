@@ -590,6 +590,17 @@ class AIVideoGenerator {
       // Motion-documentary style: visuals cut on the narration's real sentence timings, with
       // maps, archive images, cards and burned-in subtitles. Needs timed narration.
       const style = await this.videoStyleSettings();
+      // Animated-illustration style: each narration sentence becomes a drawn scene (map, stat,
+      // portrait, timeline, fireball, explosion, ...) timed to that sentence. Needs timed narration.
+      if (style.style === 'animation' && options.timing?.sentences?.length) {
+        const result = await this.renderAnimationVideo(script, audioPath, outputPath, options);
+        this.lastVideoResult = {
+          requestedProvider: 'animation', actualProvider: 'animation', model: 'local-ffmpeg', mode: 'animation',
+          realFootage: false, credits: [], generatedSeconds: 0, stockSeconds: 0, subtitlesBurned: true,
+          visualCounts: { scenes: result.scenes.length }, tasks: [], scenes: result.scenes
+        };
+        return result.path;
+      }
       if (style.style === 'documentary' && options.timing?.sentences?.length && this.mediaGeneration) {
         const { DocumentaryRenderer } = require('./documentary-renderer');
         const renderer = new DocumentaryRenderer({ aiText: this.mediaGeneration.aiText, mediaGeneration: this.mediaGeneration, logger: this.logger });
@@ -681,6 +692,45 @@ class AIVideoGenerator {
         return produced;
       }
     }
+  }
+
+  // Render the animated-illustration style: storyboard each narration sentence into a drawn scene,
+  // time the scenes to the sentences, and mux the already-generated narration audio.
+  async renderAnimationVideo(script, audioPath, outputPath, options = {}) {
+    const { buildStoryboard, validateBoard, STORYBOARD_PROMPT } = require('./animation/storyboard');
+    const { AnimationRenderer } = require('./animation/renderer');
+    const sentences = options.timing.sentences;
+    const title = options.title || (script && script.title) || 'Curious Files';
+    const sbScript = {
+      title, subtitle: options.subtitle || '', sourceNote: options.sourceNote || '',
+      loc: options.loc || null, beats: sentences.map(s => (typeof s === 'string' ? s : s.text))
+    };
+    // The deterministic storyboard is the reliable baseline; an AI director can refine it when
+    // available, but any invalid reply falls back per-beat so a render never breaks.
+    let board = buildStoryboard(sbScript);
+    if (options.useAiDirector && this.mediaGeneration?.aiText?.generate) {
+      try {
+        const reply = await this.mediaGeneration.aiText.generate(`${STORYBOARD_PROMPT}\n\nTitle: ${title}\nScript: ${JSON.stringify(sbScript.beats)}\n\nReturn only the JSON array.`);
+        const json = JSON.parse(String(reply).replace(/^[^\[]*/, '').replace(/[^\]]*$/, ''));
+        board = validateBoard(json, sbScript);
+      } catch (error) { this.logger.warn(`AI storyboard director failed, using the heuristic: ${error.message}`); }
+    }
+    // Time each scene to its sentence, tiling the whole narration timeline (no gaps).
+    let audioDur = null;
+    try { audioDur = audioPath ? await this.getMediaDuration(audioPath) : null; } catch (_e) { audioDur = null; }
+    const end = audioDur || (sentences[sentences.length - 1] && sentences[sentences.length - 1].end) || sentences.length * 4;
+    const bounds = sentences.map((s, i) => (i === 0 ? 0 : (typeof s === 'string' ? i * 4 : s.start)));
+    bounds.push(end);
+    const beatSeconds = sentences.map((_s, i) => Math.max(0.6, bounds[i + 1] - bounds[i]));
+    const renderer = new AnimationRenderer({
+      logger: this.logger,
+      onProgress: (p) => { if (p >= 0.999 || Math.round(p * 100) % 25 === 0) this.logger.info(`Animating ${Math.round(p * 100)}%`); }
+    });
+    const res = await renderer.render(board, {
+      outputPath, audioPath, beatSeconds,
+      workDir: path.join(path.dirname(outputPath), `anim-${path.basename(outputPath, '.mp4')}`)
+    });
+    return { path: res.outputPath, scenes: board.map((b, i) => ({ index: i, label: b.tpl, duration: beatSeconds[i] })) };
   }
 
   async generateHybridVideo(clips, visualAssets, audioPath, outputPath, totalDuration) {
@@ -1228,6 +1278,17 @@ class AIVideoGenerator {
     this.logger.info('Generating custom thumbnail...');
 
     try {
+      // Animated style: draw a hero scene + bold title in code (free, on-brand, honest).
+      const vstyle = await this.videoStyleSettings();
+      if (vstyle.style === 'animation') {
+        const { renderThumbnail } = require('./animation/thumbnail');
+        const dir = path.join(__dirname, '..', 'uploads', 'thumbnails');
+        await fs.mkdir(dir, { recursive: true });
+        const out = path.join(dir, `anim_thumb_${Date.now()}.png`);
+        await renderThumbnail({ title: script.title || 'Curious Files', hint: `${script.title || ''} ${script.summary || script.angle || ''}`, outputPath: out });
+        const metadata = await sharp(out).metadata();
+        return { path: out, dimensions: { width: metadata.width, height: metadata.height }, fileSize: await this.getFileSize(out) };
+      }
       if (!this.openai && !this.gemini) {
         return await this.simulateThumbnailGeneration(script, style);
       }
