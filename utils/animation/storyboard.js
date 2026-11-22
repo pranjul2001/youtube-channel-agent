@@ -18,7 +18,8 @@ seaScene {storm} (ships/sea/storms); portrait {name,role} (a person); timeline {
 (a sequence of dates); skyEvent {} (a meteor/fireball in the sky); explosion {} (a blast/impact);
 cityscape {} (a city, company or urban scene); document {} (a law, letter, writing or report);
 machine {} (an engine, machine or industry); crowd {} (people, population, a society);
-landscape {} (land, nature, terrain); statement {} (anything else — atmospheric, by caption).
+landscape {} (land, nature, terrain); cosmos {} (space, the universe, stars, planets, galaxies);
+statement {} (anything else — atmospheric, by caption).
 
 Rules: every scene must DEPICT what the sentence says — never leave a concrete thing (fireball,
 ship, person, blast) on an empty statement card. Prefer stat over statement when a figure is
@@ -49,14 +50,16 @@ function pickNumber(s) {
 function buildStoryboard(script) {
   const beats = script.beats || [];
   const n = beats.length;
-  return beats.map((say, i) => {
+  const theme = script.theme;
+  const pick = (say, i) => {
     const cap = shorten(say, 92);
-    if (i === 0) return { tpl: 'opening', params: { title: script.title, subtitle: script.subtitle, theme: script.theme }, say, cap: '' };
-    if (i === n - 1) return { tpl: 'closing', params: { title: shorten(say, 70), note: script.sourceNote, theme: script.theme }, say, cap: '' };
+    if (i === 0) return { tpl: 'opening', params: { title: script.title, subtitle: script.subtitle }, say, cap: '' };
+    if (i === n - 1) return { tpl: 'closing', params: { title: shorten(say, 70), note: script.sourceNote }, say, cap: '' };
     if (/\b(explod|explosion|blast|detonat|erupt|shockwave)\b/i.test(say)) return { tpl: 'explosion', params: {}, say, cap };
-    if (/\b(fireball|meteor|comet|shooting star|streaked across the sky)\b/i.test(say)) return { tpl: 'skyEvent', params: {}, say, cap };
+    if (/\b(fireball|meteor|shooting star|streaked across the sky)\b/i.test(say)) return { tpl: 'skyEvent', params: {}, say, cap };
     const num = pickNumber(say);
     if (num) return { tpl: 'stat', params: num, say, cap };
+    if (/\b(universe|cosmos|cosmic|galax\w*|planets?|stars?|orbit\w*|solar system|nebula\w*|black holes?|asteroids?|comets?|astronom\w+|light[-\s]?years?|interstellar|celestial|supernova|milky way|spacecraft|spaceflight|outer space)\b/i.test(say)) return { tpl: 'cosmos', params: {}, say, cap };
     if (script.loc && /\b(river|island|coast|near|over|region|lake|sea|across|valley|mountain|forest|desert|bay|city|town|border|harbou?r)\b/i.test(say)) return { tpl: 'map', params: script.loc, say, cap };
     if (/\b(sea|ship|storm|wave|sank|sink|ocean|sail|vessel|boat|freighter)\b/i.test(say)) return { tpl: 'seaScene', params: { storm: /\b(storm|sank|sink|savage|fierce)\b/i.test(say) }, say, cap };
     if (/\b(machine|engine|gears?|mechanical|invention|clockwork|factory|industr)\b/i.test(say)) return { tpl: 'machine', params: {}, say, cap };
@@ -65,7 +68,9 @@ function buildStoryboard(script) {
     if (/\b(people|population|crowd|workers|soldiers|citizens|society|refugees|villagers|passengers)\b/i.test(say)) return { tpl: 'crowd', params: {}, say, cap };
     if (/\b(forest|mountain|valley|desert|plain|countryside|wilderness|hills?|terrain|jungle|tundra|landscape|fields?)\b/i.test(say)) return { tpl: 'landscape', params: {}, say, cap };
     return { tpl: 'statement', params: {}, say, cap };
-  });
+  };
+  // Every beat carries the video's theme so even generic scenes look on-subject (e.g. a space video stays in space).
+  return beats.map((say, i) => { const b = pick(say, i); b.params = { ...b.params, theme }; return b; });
 }
 
 // Normalise an AI-produced board; narration always comes from the script verbatim. Any invalid beat
@@ -75,7 +80,7 @@ function validateBoard(aiBoard, script) {
   if (!Array.isArray(aiBoard) || aiBoard.length !== script.beats.length) return fallback;
   return aiBoard.map((b, i) => {
     if (!b || !TEMPLATE_NAMES.includes(b.tpl)) return fallback[i];
-    return { tpl: b.tpl, params: b.params || {}, say: script.beats[i], cap: typeof b.cap === 'string' ? b.cap : fallback[i].cap };
+    return { tpl: b.tpl, params: { ...(b.params || {}), theme: script.theme }, say: script.beats[i], cap: typeof b.cap === 'string' ? b.cap : fallback[i].cap };
   });
 }
 

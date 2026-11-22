@@ -4486,6 +4486,12 @@ class SystemTest {
     if (themed[0].params.theme !== 'cosmic' || themed[2].params.theme !== 'cosmic') throw new Error('Opening/closing beats must carry the theme');
     const cosmicSvg = frameSVG(themed[0], 500, 1500, 5000);
     if (!cosmicSvg.includes('csky') || cosmicSvg.includes('url(#sky)')) throw new Error('The cosmic opening must use the cosmic sky, not the sea backdrop');
+    // space lines depict the cosmos scene, and every beat carries the theme so filler stays on-subject
+    const space = buildStoryboard({ title: 'T', theme: 'cosmic', beats: ['Intro.', 'The galaxy spins with billions of stars.', 'A quiet thought remained.', 'End.'] });
+    if (space[1].tpl !== 'cosmos') throw new Error('A space/universe line must depict the cosmos scene');
+    if (space[1].params.theme !== 'cosmic' || space[2].params.theme !== 'cosmic') throw new Error('Every beat must carry the video theme');
+    if (!frameSVG(space[1], 500, 1500, 5000).includes('coP')) throw new Error('The cosmos scene must render a planet');
+    if (!frameSVG(space[2], 500, 1500, 5000).includes('csky')) throw new Error('A generic line in a cosmic video must still look like space');
 
     // soft background music bed: generated entirely by ffmpeg (no external asset, no licensing)
     const { AnimationRenderer } = require('./utils/animation/renderer');

@@ -47,7 +47,15 @@ const freighter = (x, y, sc, sw) => `<g transform="translate(${x},${y + sw}) sca
 
 const TEMPLATES = {
   opening({ title, subtitle, theme }, c) { const bd = heroBackdrop(theme || 'sea', c.tAbs); const L = wrap(title, 24), by = 95 - (L.length - 1) * 12; return bd.svg + ((theme || 'sea') === 'sea' ? freighter(300, 150, .7, bd.swell || 0) : '') + `<rect width="400" height="225" fill="#05080d" opacity=".5"/><text x="200" y="64" text-anchor="middle" font-family="${H1}" font-weight="bold" font-size="7" letter-spacing="2.5" fill="#ffcf33">${BRAND}</text>${L.map((l, i) => `<text x="200" y="${by + i * 15}" text-anchor="middle" font-family="${SER}" font-size="15" fill="#f4efe6">${xml(l)}</text>`).join('')}${subtitle ? `<text x="200" y="${by + L.length * 15 + 6}" text-anchor="middle" font-family="${H1}" font-size="8" letter-spacing="3" fill="#9fb0c4">${xml(String(subtitle).toUpperCase())}</text>` : ''}` + bd.flashSvg; },
-  statement(_p, c) { return `<rect width="400" height="225" fill="url(#neu)"/>${particles(c.tAbs)}<rect width="400" height="225" fill="url(#vig)"/>`; },
+  statement(p, c) { const th = p && p.theme; if (th === 'cosmic' || th === 'haunted' || th === 'archive') return heroBackdrop(th, c.tAbs).svg; return `<rect width="400" height="225" fill="url(#neu)"/>${particles(c.tAbs)}<rect width="400" height="225" fill="url(#vig)"/>`; },
+  cosmos(_p, c) {
+    let stars = '';
+    for (let i = 0; i < 80; i++) { const x = (i * 71 + 13) % 400, y = (i * 53 + 7) % 225; const tw = 0.25 + 0.75 * Math.abs(Math.sin(c.tAbs / 600 + i * 1.7)); stars += `<circle cx="${x}" cy="${y}" r="${0.35 + (i % 4) * 0.3}" fill="#eaf0ff" opacity="${(0.2 + (i % 3) * 0.22) * tw}"/>`; }
+    const drift = (c.tAbs / 1000) % 60, rot = (c.tAbs / 1000 * 4) % 360;
+    return `<defs><radialGradient id="coB" cx="42%" cy="40%" r="75%"><stop offset="0" stop-color="#0b0c28"/><stop offset="1" stop-color="#03030c"/></radialGradient><radialGradient id="coN" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#4a3a86" stop-opacity=".6"/><stop offset=".6" stop-color="#2a2a66" stop-opacity=".25"/><stop offset="1" stop-color="#2a2a66" stop-opacity="0"/></radialGradient><radialGradient id="coP" cx="38%" cy="34%" r="70%"><stop offset="0" stop-color="#8fc0f0"/><stop offset=".55" stop-color="#3f74c0"/><stop offset="1" stop-color="#1d335f"/></radialGradient></defs>`
+      + `<rect width="400" height="225" fill="url(#coB)"/><ellipse cx="${210 - drift * 0.4}" cy="92" rx="250" ry="135" fill="url(#coN)"/>${stars}`
+      + `<g transform="translate(300,152)"><g transform="rotate(${rot.toFixed(2)})"><ellipse cx="0" cy="0" rx="54" ry="15" fill="none" stroke="#8778c0" stroke-width="1.4" opacity=".5"/></g><circle cx="0" cy="0" r="31" fill="url(#coP)"/><path d="M-31 0 a31 31 0 0 0 62 0 a31 20 0 0 1 -62 0" fill="#02040a" opacity=".32"/></g>`;
+  },
   map({ shape, pin, route, labels }, c) {
     let marker = ''; if (route) { const t = clamp(c.tIn / c.beatMs, 0, 1); marker = freighter(lerp(route[0][0], route[1][0], t), lerp(route[0][1], route[1][1], t), .42, 0); }
     const pinSvg = pin ? `<circle cx="${pin[0]}" cy="${pin[1]}" r="3.4" fill="#ff8a6a"/><circle cx="${pin[0]}" cy="${pin[1]}" r="${5 + 3 * (0.5 + 0.5 * Math.sin(c.tAbs / 400))}" fill="none" stroke="#ff8a6a" stroke-width="1" opacity="0.6"/>` : '';
@@ -55,7 +63,7 @@ const TEMPLATES = {
     return `<rect width="400" height="225" fill="#0a1a28"/><path d="${shape}" fill="#123a52" stroke="#1f5d7d" stroke-width="1.5"/>${routeSvg}${pinSvg}${(labels || []).map(l => `<text x="${l[0]}" y="${l[1]}" font-family="${H1}" font-weight="bold" font-size="8.5" fill="#dce8f2">${xml(l[2])}</text>`).join('')}${marker}`;
   },
   seaScene({ storm }, c) { const bd = seaBackdrop(c.tAbs, storm); return bd.svg + freighter(200, 150, 1, bd.swell) + bd.flashSvg; },
-  stat({ number, label }, c) { const pop = 1 + .04 * Math.max(0, Math.sin(2 * Math.PI * c.tIn / 1400)); return `<rect width="400" height="225" fill="#0b0f16"/><rect width="400" height="225" fill="url(#vig)"/><text x="200" y="118" text-anchor="middle" font-family="${H1}" font-weight="bold" font-size="${50 * pop}" fill="#ffcf33">${xml(number)}</text><text x="200" y="150" text-anchor="middle" font-family="${H1}" font-weight="bold" font-size="11" letter-spacing="2.5" fill="#eef3fb">${xml(String(label).toUpperCase())}</text>`; },
+  stat({ number, label, theme }, c) { const pop = 1 + .04 * Math.max(0, Math.sin(2 * Math.PI * c.tIn / 1400)); const themed = (theme === 'cosmic' || theme === 'haunted' || theme === 'archive'); const bg = themed ? heroBackdrop(theme, c.tAbs).svg + `<ellipse cx="200" cy="120" rx="165" ry="54" fill="#05060f" opacity="0.4"/>` : `<rect width="400" height="225" fill="#0b0f16"/><rect width="400" height="225" fill="url(#vig)"/>`; return bg + `<text x="200" y="118" text-anchor="middle" font-family="${H1}" font-weight="bold" font-size="${50 * pop}" fill="#ffcf33">${xml(number)}</text><text x="200" y="150" text-anchor="middle" font-family="${H1}" font-weight="bold" font-size="11" letter-spacing="2.5" fill="#eef3fb">${xml(String(label).toUpperCase())}</text>`; },
   closing({ title, note, theme }, c) { const bd = heroBackdrop(theme || 'sea', c.tAbs); const L = wrap(title, 26), by = 100 - (L.length - 1) * 11; return bd.svg + `<rect width="400" height="225" fill="#05080d" opacity=".62"/><text x="200" y="70" text-anchor="middle" font-family="${H1}" font-weight="bold" font-size="7" letter-spacing="2.5" fill="#ffcf33">${BRAND}</text>${L.map((l, i) => `<text x="200" y="${by + i * 13}" text-anchor="middle" font-family="${SER}" font-size="13" fill="#eef3fb">${xml(l)}</text>`).join('')}${note ? `<text x="200" y="150" text-anchor="middle" font-family="${H1}" font-size="7.5" fill="#93a0b4">${xml(note)}</text>` : ''}`; },
   portrait({ name, role }, c) {
     const glow = 0.5 + 0.5 * Math.sin(c.tAbs / 1600);
@@ -139,15 +147,29 @@ function defs(storm) {
     + `<radialGradient id="gvig" cx="50%" cy="50%" r="72%"><stop offset="0" stop-color="#000" stop-opacity="0"/><stop offset=".65" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="0.3"/></radialGradient></defs>`;
 }
 
+function hashStr(s) { let h = 0; s = String(s); for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h; }
+// A slow, subtle camera move per scene (push-in or pull-back + a touch of drift) so nothing is
+// ever fully static. Always keeps the frame covered (z >= 1.012, drift < the overscan margin).
+function cameraFor(beat, tIn, beatMs) {
+  const p = clamp(beatMs ? tIn / beatMs : 0, 0, 1);
+  const seed = hashStr((beat.cap || '') + beat.tpl);
+  const z = (seed % 2) ? 1.03 + 0.13 * p : 1.16 - 0.13 * p; // in [1.03, 1.16]
+  const panX = (((seed >> 1) % 3) - 1) * 10 * (p - 0.5);    // |drift| <= 5 < overscan (6)
+  const panY = (((seed >> 3) % 3) - 1) * 5 * (p - 0.5);     // |drift| <= 2.5 < overscan (3.3)
+  const cx = 200, cy = 112;
+  return `translate(${(cx * (1 - z) + panX).toFixed(3)},${(cy * (1 - z) + panY).toFixed(3)}) scale(${z.toFixed(4)})`;
+}
+
 // Assemble one full 1280x720 frame (viewBox 400x225) for a beat at time tIn within the beat.
 function frameSVG(beat, tInMs, tAbsMs, beatMs) {
   if (!TEMPLATES[beat.tpl]) throw new Error('unknown template: ' + beat.tpl);
   const storm = (beat.params && beat.params.storm) || beat.tpl === 'opening' || beat.tpl === 'closing';
   const body = TEMPLATES[beat.tpl](beat.params || {}, { tAbs: tAbsMs, tIn: tInMs, beatMs, W: 1280, H: 720 });
+  const cam = cameraFor(beat, tInMs, beatMs);
   const fade = clamp(1 - tInMs / 350, 0, 1);
   let cap = '';
   if (beat.cap) { const L = wrap(beat.cap, 48), lh = 15, by = 214 - (L.length - 1) * lh; cap = `<rect x="0" y="182" width="400" height="43" fill="url(#capband)"/>` + L.map((l, i) => `<text x="200" y="${by + i * lh}" text-anchor="middle" font-family="${H1}" font-style="italic" font-weight="bold" font-size="12.5" fill="#ffe14d">${xml(l)}</text>`).join(''); }
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 400 225">${defs(storm)}${body}<rect width="400" height="225" fill="url(#gvig)"/>${cap}<rect width="400" height="225" fill="#05080d" opacity="${fade}"/></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 400 225">${defs(storm)}<g transform="${cam}">${body}</g><rect width="400" height="225" fill="url(#gvig)"/>${cap}<rect width="400" height="225" fill="#05080d" opacity="${fade}"/></svg>`;
 }
 
 module.exports = { TEMPLATES, TEMPLATE_NAMES, frameSVG, defs, wrap, BRAND };
