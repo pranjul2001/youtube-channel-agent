@@ -6,7 +6,7 @@
 
 const { TEMPLATE_NAMES } = require('./scenes');
 
-const STORYBOARD_PROMPT = `You are the visual director for a calm, factual documentary channel ("Curious Files").
+const STORYBOARD_PROMPT = `You are the visual director for "The Unknown Archive", a channel of fascinating true stories told as calm, clear animated explainers.
 Given a narration script (an array of sentences) plus a title and optional geography, produce a
 STORYBOARD: for each sentence, choose ONE scene template and fill its params. Return STRICT JSON:
 an array (same length as the script) of { "tpl": <template>, "params": {...}, "cap": <on-screen

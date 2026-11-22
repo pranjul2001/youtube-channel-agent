@@ -4,6 +4,8 @@
 // Part of the "Option A" animated-video style (see docs/adr).
 
 const H1 = 'Helvetica Neue, Helvetica, Arial', SER = 'Georgia, serif';
+// On-screen channel brand burned into the intro/outro and thumbnail. One place to change on a rename.
+const BRAND = (process.env.CHANNEL_BRAND || 'The Unknown Archive').toUpperCase();
 const xml = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -24,7 +26,7 @@ function particles(tAbs) { let s = ''; for (let i = 0; i < 26; i++) { const bx =
 const freighter = (x, y, sc, sw) => `<g transform="translate(${x},${y + sw}) scale(${sc})"><path d="M-46 0 q-4 7 4 7 l78 0 q10 0 8 -7 Z" fill="#12171f"/><rect x="-44" y="-5" width="70" height="5" fill="#1b2430"/><rect x="18" y="-16" width="12" height="11" fill="#223040"/><line x1="24" y1="-16" x2="24" y2="-24" stroke="#223040" stroke-width="1.5"/></g>`;
 
 const TEMPLATES = {
-  opening({ title, subtitle }, c) { const bd = seaBackdrop(c.tAbs, true); const L = wrap(title, 24), by = 95 - (L.length - 1) * 12; return bd.svg + freighter(300, 150, .7, bd.swell) + `<rect width="400" height="225" fill="#05080d" opacity=".5"/><text x="200" y="64" text-anchor="middle" font-family="${H1}" font-weight="bold" font-size="8" letter-spacing="4" fill="#ffcf33">CURIOUS FILES</text>${L.map((l, i) => `<text x="200" y="${by + i * 15}" text-anchor="middle" font-family="${SER}" font-size="15" fill="#f4efe6">${xml(l)}</text>`).join('')}${subtitle ? `<text x="200" y="${by + L.length * 15 + 6}" text-anchor="middle" font-family="${H1}" font-size="8" letter-spacing="3" fill="#9fb0c4">${xml(String(subtitle).toUpperCase())}</text>` : ''}` + bd.flashSvg; },
+  opening({ title, subtitle }, c) { const bd = seaBackdrop(c.tAbs, true); const L = wrap(title, 24), by = 95 - (L.length - 1) * 12; return bd.svg + freighter(300, 150, .7, bd.swell) + `<rect width="400" height="225" fill="#05080d" opacity=".5"/><text x="200" y="64" text-anchor="middle" font-family="${H1}" font-weight="bold" font-size="7" letter-spacing="2.5" fill="#ffcf33">${BRAND}</text>${L.map((l, i) => `<text x="200" y="${by + i * 15}" text-anchor="middle" font-family="${SER}" font-size="15" fill="#f4efe6">${xml(l)}</text>`).join('')}${subtitle ? `<text x="200" y="${by + L.length * 15 + 6}" text-anchor="middle" font-family="${H1}" font-size="8" letter-spacing="3" fill="#9fb0c4">${xml(String(subtitle).toUpperCase())}</text>` : ''}` + bd.flashSvg; },
   statement(_p, c) { return `<rect width="400" height="225" fill="url(#neu)"/>${particles(c.tAbs)}<rect width="400" height="225" fill="url(#vig)"/>`; },
   map({ shape, pin, route, labels }, c) {
     let marker = ''; if (route) { const t = clamp(c.tIn / c.beatMs, 0, 1); marker = freighter(lerp(route[0][0], route[1][0], t), lerp(route[0][1], route[1][1], t), .42, 0); }
@@ -34,7 +36,7 @@ const TEMPLATES = {
   },
   seaScene({ storm }, c) { const bd = seaBackdrop(c.tAbs, storm); return bd.svg + freighter(200, 150, 1, bd.swell) + bd.flashSvg; },
   stat({ number, label }, c) { const pop = 1 + .04 * Math.max(0, Math.sin(2 * Math.PI * c.tIn / 1400)); return `<rect width="400" height="225" fill="#0b0f16"/><rect width="400" height="225" fill="url(#vig)"/><text x="200" y="118" text-anchor="middle" font-family="${H1}" font-weight="bold" font-size="${50 * pop}" fill="#ffcf33">${xml(number)}</text><text x="200" y="150" text-anchor="middle" font-family="${H1}" font-weight="bold" font-size="11" letter-spacing="2.5" fill="#eef3fb">${xml(String(label).toUpperCase())}</text>`; },
-  closing({ title, note }, c) { const bd = seaBackdrop(c.tAbs, true); const L = wrap(title, 26), by = 100 - (L.length - 1) * 11; return bd.svg + `<rect width="400" height="225" fill="#05080d" opacity=".62"/><text x="200" y="70" text-anchor="middle" font-family="${H1}" font-weight="bold" font-size="8" letter-spacing="4" fill="#ffcf33">CURIOUS FILES</text>${L.map((l, i) => `<text x="200" y="${by + i * 13}" text-anchor="middle" font-family="${SER}" font-size="13" fill="#eef3fb">${xml(l)}</text>`).join('')}${note ? `<text x="200" y="150" text-anchor="middle" font-family="${H1}" font-size="7.5" fill="#93a0b4">${xml(note)}</text>` : ''}`; },
+  closing({ title, note }, c) { const bd = seaBackdrop(c.tAbs, true); const L = wrap(title, 26), by = 100 - (L.length - 1) * 11; return bd.svg + `<rect width="400" height="225" fill="#05080d" opacity=".62"/><text x="200" y="70" text-anchor="middle" font-family="${H1}" font-weight="bold" font-size="7" letter-spacing="2.5" fill="#ffcf33">${BRAND}</text>${L.map((l, i) => `<text x="200" y="${by + i * 13}" text-anchor="middle" font-family="${SER}" font-size="13" fill="#eef3fb">${xml(l)}</text>`).join('')}${note ? `<text x="200" y="150" text-anchor="middle" font-family="${H1}" font-size="7.5" fill="#93a0b4">${xml(note)}</text>` : ''}`; },
   portrait({ name, role }, c) {
     const glow = 0.5 + 0.5 * Math.sin(c.tAbs / 1600);
     return `<rect width="400" height="225" fill="url(#neu)"/>${particles(c.tAbs)}`
@@ -113,7 +115,8 @@ function defs(storm) {
     + `<linearGradient id="neu" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#101826"/><stop offset="1" stop-color="#0a0f18"/></linearGradient>`
     + `<linearGradient id="dawn" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#101a33"/><stop offset=".55" stop-color="#3a2a4a"/><stop offset="1" stop-color="#d98a4a"/></linearGradient>`
     + `<radialGradient id="fbglow" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#fff6d2" stop-opacity="1"/><stop offset=".4" stop-color="#ffb347" stop-opacity=".8"/><stop offset="1" stop-color="#ff7a30" stop-opacity="0"/></radialGradient>`
-    + `<linearGradient id="trail" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffb347" stop-opacity="0"/><stop offset="1" stop-color="#fff6d2" stop-opacity="0.9"/></linearGradient></defs>`;
+    + `<linearGradient id="trail" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffb347" stop-opacity="0"/><stop offset="1" stop-color="#fff6d2" stop-opacity="0.9"/></linearGradient>`
+    + `<radialGradient id="gvig" cx="50%" cy="50%" r="72%"><stop offset="0" stop-color="#000" stop-opacity="0"/><stop offset=".65" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="0.3"/></radialGradient></defs>`;
 }
 
 // Assemble one full 1280x720 frame (viewBox 400x225) for a beat at time tIn within the beat.
@@ -124,7 +127,7 @@ function frameSVG(beat, tInMs, tAbsMs, beatMs) {
   const fade = clamp(1 - tInMs / 350, 0, 1);
   let cap = '';
   if (beat.cap) { const L = wrap(beat.cap, 48), lh = 15, by = 214 - (L.length - 1) * lh; cap = `<rect x="0" y="182" width="400" height="43" fill="url(#capband)"/>` + L.map((l, i) => `<text x="200" y="${by + i * lh}" text-anchor="middle" font-family="${H1}" font-style="italic" font-weight="bold" font-size="12.5" fill="#ffe14d">${xml(l)}</text>`).join(''); }
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 400 225">${defs(storm)}${body}${cap}<rect width="400" height="225" fill="#05080d" opacity="${fade}"/></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 400 225">${defs(storm)}${body}<rect width="400" height="225" fill="url(#gvig)"/>${cap}<rect width="400" height="225" fill="#05080d" opacity="${fade}"/></svg>`;
 }
 
-module.exports = { TEMPLATES, TEMPLATE_NAMES, frameSVG, defs, wrap };
+module.exports = { TEMPLATES, TEMPLATE_NAMES, frameSVG, defs, wrap, BRAND };

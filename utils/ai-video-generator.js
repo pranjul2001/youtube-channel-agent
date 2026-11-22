@@ -278,7 +278,7 @@ class AIVideoGenerator {
       style: String(process.env.VIDEO_STYLE || stored.video_style || 'stock').toLowerCase(),
       burnSubtitles: flag(process.env.BURN_SUBTITLES ?? stored.burn_subtitles, true),
       allowShareAlike: flag(process.env.ARCHIVE_ALLOW_SHARE_ALIKE ?? stored.archive_allow_share_alike, false),
-      channelName: stored.channel_name || 'Curious Files'
+      channelName: stored.channel_name || 'The Unknown Archive'
     };
   }
 
@@ -295,8 +295,8 @@ class AIVideoGenerator {
       style: process.env.NARRATION_STYLE || stored.narration_style || DEFAULT_NARRATION_STYLE,
       models,
       chunkWords: Math.min(400, Math.max(80, Number(process.env.NARRATION_CHUNK_WORDS || stored.narration_chunk_words || 230))),
-      paragraphPause: 0.45,
-      chunkPause: 0.7
+      paragraphPause: 0.55,
+      chunkPause: 0.85
     };
   }
 

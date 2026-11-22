@@ -2,7 +2,7 @@
 // Animated-style thumbnail: a dramatic hero scene from the kit + the title in bold, drawn in code
 // (free, on-brand, honest — no AI image). 1280x720 PNG via sharp.
 const path = require('path');
-const { TEMPLATES, defs, wrap } = require('./scenes');
+const { TEMPLATES, defs, wrap, BRAND } = require('./scenes');
 
 const xml = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
@@ -24,7 +24,7 @@ async function renderThumbnail({ title, outputPath, hint }) {
   const pick = pickScene(hint || title);
   const ctx = { tAbs: 2600, tIn: 1200, beatMs: 5000, W: 1280, H: 720 };
   const body = TEMPLATES[pick.s](pick.p, ctx);
-  const lines = wrap(String(title || 'Curious Files').toUpperCase(), 18).slice(0, 3);
+  const lines = wrap(String(title || 'The Unknown Archive').toUpperCase(), 18).slice(0, 3);
   const fsz = lines.length >= 3 ? 20 : 25;
   const baseY = 210 - (lines.length - 1) * (fsz + 2);
   const titleSvg = lines.map((l, i) => `<text x="22" y="${baseY + i * (fsz + 2)}" font-family="Georgia, 'Times New Roman', serif" font-weight="bold" font-size="${fsz}" fill="#ffffff" paint-order="stroke" stroke="#05080d" stroke-width="4" stroke-opacity="0.65">${xml(l)}</text>`).join('');
@@ -33,7 +33,7 @@ async function renderThumbnail({ title, outputPath, hint }) {
     + body
     + `<rect x="0" y="96" width="400" height="129" fill="url(#capband)"/>`
     + `<rect x="22" y="${baseY - fsz - 10}" width="46" height="3" fill="#ffcf33"/>`
-    + `<text x="22" y="${baseY - fsz - 1}" font-family="Helvetica Neue, Helvetica, Arial" font-weight="bold" font-size="8" letter-spacing="3" fill="#ffcf33">CURIOUS FILES</text>`
+    + `<text x="22" y="${baseY - fsz - 1}" font-family="Helvetica Neue, Helvetica, Arial" font-weight="bold" font-size="8" letter-spacing="3" fill="#ffcf33">${BRAND}</text>`
     + titleSvg
     + `</svg>`;
   const out = outputPath || path.join(__dirname, '..', '..', 'uploads', 'thumbnails', `anim_thumb_${Date.now()}.png`);
