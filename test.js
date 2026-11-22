@@ -4477,6 +4477,22 @@ class SystemTest {
     await renderThumbnail({ title: 'The Tunguska Event', hint: 'fireball explosion', outputPath: tmp });
     if (require('fs').statSync(tmp).size < 1000) throw new Error('Animation thumbnail must render to a non-trivial PNG');
     require('fs').unlinkSync(tmp);
+
+    // themed intro/outro backdrop: the theme is chosen from the subject and flows into the art
+    const { themeFor } = require('./utils/animation/storyboard');
+    if (themeFor('The black hole at the galaxy core') !== 'cosmic') throw new Error('Space topics must pick the cosmic theme');
+    if (themeFor('The haunted abandoned fort') !== 'haunted') throw new Error('Haunted topics must pick the haunted theme');
+    const themed = buildStoryboard({ title: 'T', theme: 'cosmic', beats: ['Intro.', 'Middle.', 'End.'] });
+    if (themed[0].params.theme !== 'cosmic' || themed[2].params.theme !== 'cosmic') throw new Error('Opening/closing beats must carry the theme');
+    const cosmicSvg = frameSVG(themed[0], 500, 1500, 5000);
+    if (!cosmicSvg.includes('csky') || cosmicSvg.includes('url(#sky)')) throw new Error('The cosmic opening must use the cosmic sky, not the sea backdrop');
+
+    // soft background music bed: generated entirely by ffmpeg (no external asset, no licensing)
+    const { AnimationRenderer } = require('./utils/animation/renderer');
+    const bed = require('path').join(require('os').tmpdir(), `anim-bed-${Date.now()}.wav`);
+    await new AnimationRenderer({}).makeMusicBed(2, bed, 'cosmic');
+    if (require('fs').statSync(bed).size < 2000) throw new Error('Music bed must generate a real audio file');
+    require('fs').unlinkSync(bed);
   }
 
   async testLoopedVideoIsBounded() {

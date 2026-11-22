@@ -71,14 +71,52 @@ class AnimationRenderer {
       startMs += beatMs;
     }
 
-    // ---- encode frames, then mux the narration audio ----
+    // ---- encode frames, then mux audio (narration + optional soft music bed) ----
     const silent = path.join(dir, 'silent.mp4');
     await run(this.ffmpeg, ['-y', '-framerate', String(fps), '-i', path.join(FR, 'f%05d.png'), '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '20', silent]);
-    await run(this.ffmpeg, ['-y', '-i', silent, '-i', audioPath, '-c:v', 'copy', '-c:a', 'aac', '-b:a', '160k', '-shortest', out]);
+    const muxNarrationOnly = () => run(this.ffmpeg, ['-y', '-i', silent, '-i', audioPath, '-c:v', 'copy', '-c:a', 'aac', '-b:a', '160k', '-shortest', out]);
+    const music = opts.music && opts.music.enabled !== false ? opts.music : null;
+    if (music) {
+      try {
+        const dur = durationOf(this.ffmpeg, audioPath);
+        const bed = path.join(AUD, 'bed.wav');
+        await this.makeMusicBed(dur, bed, music.theme);
+        const vol = typeof music.volume === 'number' ? music.volume : 0.08;
+        const fo = Math.max(0, dur - 4).toFixed(2);
+        // normalize=0 keeps the narration at full level; the bed is purely additive underneath.
+        await run(this.ffmpeg, ['-y', '-i', silent, '-i', audioPath, '-i', bed,
+          '-filter_complex', `[2:a]volume=${vol},afade=t=in:st=0:d=3,afade=t=out:st=${fo}:d=4[bed];[1:a][bed]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[a]`,
+          '-map', '0:v', '-map', '[a]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '160k', '-shortest', out]);
+      } catch (e) {
+        this.logger.warn(`Music bed failed, using narration only: ${e.message}`);
+        await muxNarrationOnly();
+      }
+    } else {
+      await muxNarrationOnly();
+    }
 
     const seconds = totalFrames / fps;
     this.logger.info(`Animation video ready: ${board.length} scenes, ${totalFrames} frames, ${seconds.toFixed(1)}s -> ${out}`);
     return { outputPath: out, seconds, frames: totalFrames, scenes: board.length };
+  }
+
+  // A soft, original ambient pad generated entirely with ffmpeg — no external file, no licensing.
+  // A slow three-note drone tinted by theme, low-passed and reverbed so it sits gently under speech.
+  async makeMusicBed(durationSec, bedPath, theme) {
+    const d = Math.max(1, Math.ceil(durationSec));
+    const chords = {
+      cosmic: [220, 329.63, 440],   // airy, higher
+      haunted: [110, 130.81, 164.81], // low, minor, eerie
+      archive: [110, 164.81, 220],
+      sea: [110, 164.81, 220]
+    };
+    const freqs = chords[theme] || chords.sea;
+    const inputs = freqs.flatMap(f => ['-f', 'lavfi', '-i', `sine=frequency=${f}:duration=${d}`]);
+    const idx = freqs.map((_, i) => `[${i}:a]`).join('');
+    const echo = theme === 'cosmic' ? 'aecho=0.8:0.7:220:0.4' : 'aecho=0.8:0.6:140:0.35';
+    const lp = theme === 'cosmic' ? 820 : 600;
+    const filter = `${idx}amix=inputs=${freqs.length},tremolo=f=0.1:d=0.6,lowpass=f=${lp},${echo},volume=1.6[a]`;
+    await run(this.ffmpeg, ['-y', ...inputs, '-filter_complex', filter, '-map', '[a]', '-ar', '44100', '-ac', '2', bedPath]);
   }
 }
 

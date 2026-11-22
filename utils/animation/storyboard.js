@@ -27,6 +27,15 @@ invent nothing. Numbers as words in narration, digits in captions. Keep captions
 
 function shorten(s, n) { s = String(s).replace(/\.$/, ''); return s.length <= n ? s : s.slice(0, n).replace(/\s+\S*$/, '') + '…'; }
 
+// Pick the intro/outro backdrop theme from the topic text (title + series + keywords).
+function themeFor(text) {
+  const h = String(text || '').toLowerCase();
+  if (/\b(univers|cosmos|cosmic|galax|star|planet|black hole|alien|space|nebula|astronom|voyager|solar|orbit|comet|asteroid)\b/.test(h)) return 'cosmic';
+  if (/\b(haunt|ghost|spirit|curse|eerie|abandoned|fort|castle|catacomb|crypt|tomb|graveyard|paranormal|legend|myth|haunted|ruin)\b/.test(h)) return 'haunted';
+  if (/\b(empire|dynasty|ancient|history|historic|colon|king|queen|emperor|war|battle|expedition|century|medieval|revolution|civilization|ship|titanic)\b/.test(h)) return 'archive';
+  return 'sea';
+}
+
 function pickNumber(s) {
   const m = s.match(/\b(\d[\d,]*(?:\.\d+)?)\s*(million|billion|thousand)?\b/i);
   if (!m) return null;
@@ -42,8 +51,8 @@ function buildStoryboard(script) {
   const n = beats.length;
   return beats.map((say, i) => {
     const cap = shorten(say, 92);
-    if (i === 0) return { tpl: 'opening', params: { title: script.title, subtitle: script.subtitle }, say, cap: '' };
-    if (i === n - 1) return { tpl: 'closing', params: { title: shorten(say, 70), note: script.sourceNote }, say, cap: '' };
+    if (i === 0) return { tpl: 'opening', params: { title: script.title, subtitle: script.subtitle, theme: script.theme }, say, cap: '' };
+    if (i === n - 1) return { tpl: 'closing', params: { title: shorten(say, 70), note: script.sourceNote, theme: script.theme }, say, cap: '' };
     if (/\b(explod|explosion|blast|detonat|erupt|shockwave)\b/i.test(say)) return { tpl: 'explosion', params: {}, say, cap };
     if (/\b(fireball|meteor|comet|shooting star|streaked across the sky)\b/i.test(say)) return { tpl: 'skyEvent', params: {}, say, cap };
     const num = pickNumber(say);
@@ -70,4 +79,4 @@ function validateBoard(aiBoard, script) {
   });
 }
 
-module.exports = { STORYBOARD_PROMPT, buildStoryboard, validateBoard, pickNumber };
+module.exports = { STORYBOARD_PROMPT, buildStoryboard, validateBoard, pickNumber, themeFor };

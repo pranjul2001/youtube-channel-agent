@@ -697,12 +697,14 @@ class AIVideoGenerator {
   // Render the animated-illustration style: storyboard each narration sentence into a drawn scene,
   // time the scenes to the sentences, and mux the already-generated narration audio.
   async renderAnimationVideo(script, audioPath, outputPath, options = {}) {
-    const { buildStoryboard, validateBoard, STORYBOARD_PROMPT } = require('./animation/storyboard');
+    const { buildStoryboard, validateBoard, STORYBOARD_PROMPT, themeFor } = require('./animation/storyboard');
     const { AnimationRenderer } = require('./animation/renderer');
     const sentences = options.timing.sentences;
-    const title = options.title || (script && script.title) || 'Curious Files';
+    const title = options.title || (script && script.title) || 'The Unknown Archive';
+    // Theme the intro/outro backdrop (cosmic/haunted/archive/sea) from the subject.
+    const theme = themeFor(`${options.subtitle || ''} ${title} ${((script && script.keywords) || []).join(' ')}`);
     const sbScript = {
-      title, subtitle: options.subtitle || '', sourceNote: options.sourceNote || '',
+      title, subtitle: options.subtitle || '', sourceNote: options.sourceNote || '', theme,
       loc: options.loc || null, beats: sentences.map(s => (typeof s === 'string' ? s : s.text))
     };
     // The deterministic storyboard is the reliable baseline; an AI director can refine it when
@@ -726,8 +728,14 @@ class AIVideoGenerator {
       logger: this.logger,
       onProgress: (p) => { if (p >= 0.999 || Math.round(p * 100) % 25 === 0) this.logger.info(`Animating ${Math.round(p * 100)}%`); }
     });
+    // Soft background music bed (default on; original ffmpeg-generated, free, licensing-safe).
+    const stored = this.db?.getAllSettings ? await this.db.getAllSettings().catch(() => ({})) : {};
+    const musicOn = !/^(false|0|no|off)$/i.test(String(process.env.BACKGROUND_MUSIC ?? stored.background_music ?? 'true'));
+    const musicVolRaw = Number(process.env.BACKGROUND_MUSIC_VOLUME ?? stored.background_music_volume ?? 0.08);
+    const musicVol = Number.isFinite(musicVolRaw) ? Math.max(0, Math.min(0.3, musicVolRaw)) : 0.08;
     const res = await renderer.render(board, {
       outputPath, audioPath, beatSeconds,
+      music: { enabled: musicOn, volume: musicVol, theme },
       workDir: path.join(path.dirname(outputPath), `anim-${path.basename(outputPath, '.mp4')}`)
     });
     return { path: res.outputPath, scenes: board.map((b, i) => ({ index: i, label: b.tpl, duration: beatSeconds[i] })) };
