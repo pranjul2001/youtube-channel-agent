@@ -110,7 +110,7 @@ class DocumentaryScriptWriter {
   }
 
   prompt(topic, sources, fixes = '') {
-    return `You write narration for "Curious Files", a calm, factual documentary YouTube channel. Write the full script for this video.
+    return `You write narration for "The Unknown Archive", a YouTube channel of fascinating true stories told as calm, clear animated explainers. Write the full script for this video.
 Topic: ${topic.topic}
 Angle: ${topic.angle || ''}
 Series: ${topic.tag || 'Wildcard'}
@@ -121,7 +121,8 @@ STRICT RULES
 - Help the listener picture things: compare sizes and speeds to familiar things only when the comparison is simple arithmetic on source facts; otherwise do not compare.
 - Separate clearly, in the wording itself, what is known, what experts believe, and what is speculation or legend.
 - 1600 to 1900 spoken words in total (about 10 to 12 minutes of narration). Short, clear sentences for a calm narrator; vary their length. Plain English; explain any technical term in a few words.
-- "hook": 2-3 short paragraphs. Open with the single most surprising true fact or an honest question, in under 25 words. Then say, naturally, what the listener will find out. Never write "this video", "in this video" or "we will cover".
+- "title": a specific, curiosity-driven title under 90 characters that makes a stranger need to click, while staying 100% true to the content. Name the real subject and hint at the intrigue, surprise, stakes or scale. Prefer concrete specifics over vague words. Good: "The Colony That Vanished Without a Trace: Roanoke"; "What's Really at the Edge of the Universe?". Avoid: ALL CAPS, "you won't believe", "#1", fake urgency, and flat titles like "The History of Glass".
+- "hook": 2-3 short paragraphs that win the first 30 seconds. Start COLD with ONE vivid concrete image, one stunning true fact, or one real unanswered question — a single sentence under 20 words that opens a loop the listener needs closed. No throat-clearing, no greeting, no "today", no "this video", no "we will cover". Then, in a sentence or two, promise what they will discover and why it matters, raising the stakes so they cannot look away.
 - Then 9 to 12 sections, each with a short title (2-5 words) and 2-4 short paragraphs. End most sections with a sentence that makes the listener want the next part. Choose a structure that suits THIS story (timeline, question and answer, three key moments, myth versus record...), not a fixed template.
 - "closing": 1-2 paragraphs that sum up honestly and leave one thought to remember.
 - No greetings, no "in this video we will", no "smash that like button", no hype, no clickbait. No gore or graphic detail. Respect real people. No medical or financial advice.
@@ -130,7 +131,7 @@ STRICT RULES
 - "claims": 12 to 18 of the most important checkable facts you used, each a full sentence in your own words containing the exact numbers and names, with "sources" (keys such as "W1") and "risk": "high" for dates, numbers, causes and anything about real people, otherwise "standard".
 - "keywords": 6 to 8 search phrases.
 ${fixes}
-Return ONLY JSON: {"title":"honest title under 90 characters","hook":["..."],"sections":[{"title":"...","paragraphs":["..."]}],"closing":["..."],"cta":"...","claims":[{"text":"...","sources":["W1"],"risk":"standard"}],"keywords":["..."]}
+Return ONLY JSON: {"title":"curiosity-driven, honest title under 90 characters","hook":["..."],"sections":[{"title":"...","paragraphs":["..."]}],"closing":["..."],"cta":"...","claims":[{"text":"...","sources":["W1"],"risk":"standard"}],"keywords":["..."]}
 
 SOURCES
 ${sources.map(source => `[${source.key}] ${source.title} (Wikipedia) ${source.url}\n${source.text}`).join('\n\n---\n\n')}`;
