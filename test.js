@@ -4482,6 +4482,8 @@ class SystemTest {
     const { themeFor } = require('./utils/animation/storyboard');
     if (themeFor('The black hole at the galaxy core') !== 'cosmic') throw new Error('Space topics must pick the cosmic theme');
     if (themeFor('The haunted abandoned fort') !== 'haunted') throw new Error('Haunted topics must pick the haunted theme');
+    if (themeFor('A naval voyage across the open ocean') !== 'sea') throw new Error('Maritime topics must pick the sea theme');
+    if (themeFor('The invention of the printing press') !== 'neutral') throw new Error('Topics with no strong theme must default to neutral (no water)');
     const themed = buildStoryboard({ title: 'T', theme: 'cosmic', beats: ['Intro.', 'Middle.', 'End.'] });
     if (themed[0].params.theme !== 'cosmic' || themed[2].params.theme !== 'cosmic') throw new Error('Opening/closing beats must carry the theme');
     const cosmicSvg = frameSVG(themed[0], 500, 1500, 5000);
@@ -4492,6 +4494,15 @@ class SystemTest {
     if (space[1].params.theme !== 'cosmic' || space[2].params.theme !== 'cosmic') throw new Error('Every beat must carry the video theme');
     if (!frameSVG(space[1], 500, 1500, 5000).includes('coP')) throw new Error('The cosmos scene must render a planet');
     if (!frameSVG(space[2], 500, 1500, 5000).includes('csky')) throw new Error('A generic line in a cosmic video must still look like space');
+    // per-video identity: different titles get different seeds, and scenes vary so videos are not clones
+    const vidA = buildStoryboard({ title: 'The deep ocean trench', beats: ['Intro.', 'A quiet claim remained.', 'End.'] });
+    const vidB = buildStoryboard({ title: 'A distant desert empire', beats: ['Intro.', 'A quiet claim remained.', 'End.'] });
+    if (vidA[0].params.seed === vidB[0].params.seed) throw new Error('Different videos must get different visual seeds');
+    const cosA = frameSVG({ tpl: 'cosmos', params: { seed: 1 }, cap: 'x' }, 500, 1500, 5000);
+    const cosB = frameSVG({ tpl: 'cosmos', params: { seed: 2 }, cap: 'x' }, 500, 1500, 5000);
+    if (cosA === cosB) throw new Error('The cosmos scene must vary between videos (different planet/colour)');
+    // real titles hash to large (>2^31) seeds — every scene must still render (no negative index)
+    ['cosmos', 'opening', 'closing', 'statement', 'stat'].forEach(t => { if (!frameSVG({ tpl: t, params: { seed: 4000000000, theme: 'cosmic', number: '5', label: 'x', title: 'T' }, cap: 'x' }, 500, 1500, 5000).includes('</svg>')) throw new Error('Scene must render with a large seed: ' + t); });
 
     // soft background music bed: generated entirely by ffmpeg (no external asset, no licensing)
     const { AnimationRenderer } = require('./utils/animation/renderer');

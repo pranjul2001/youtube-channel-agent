@@ -33,9 +33,13 @@ function themeFor(text) {
   const h = String(text || '').toLowerCase();
   if (/\b(univers|cosmos|cosmic|galax|star|planet|black hole|alien|space|nebula|astronom|voyager|solar|orbit|comet|asteroid)\b/.test(h)) return 'cosmic';
   if (/\b(haunt|ghost|spirit|curse|eerie|abandoned|fort|castle|catacomb|crypt|tomb|graveyard|paranormal|legend|myth|haunted|ruin)\b/.test(h)) return 'haunted';
-  if (/\b(empire|dynasty|ancient|history|historic|colon|king|queen|emperor|war|battle|expedition|century|medieval|revolution|civilization|ship|titanic)\b/.test(h)) return 'archive';
-  return 'sea';
+  if (/\b(ship|shipwreck|sea|ocean|naval|navy|maritime|sail|voyage|vessel|titanic|boat|fleet|harbou?r|coast|lighthouse|submarine|mariner)\b/.test(h)) return 'sea';
+  if (/\b(empire|dynasty|ancient|history|historic|colon|king|queen|emperor|war|battle|expedition|century|medieval|revolution|civilization|pharaoh|castle)\b/.test(h)) return 'archive';
+  return 'neutral';
 }
+
+// A stable per-video number from its title, so each video gets its own palette and scene variants.
+function seedOf(s) { let h = 2166136261 >>> 0; s = String(s == null ? '' : s); for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } return h; }
 
 function pickNumber(s) {
   const m = s.match(/\b(\d[\d,]*(?:\.\d+)?)\s*(million|billion|thousand)?\b/i);
@@ -50,7 +54,8 @@ function pickNumber(s) {
 function buildStoryboard(script) {
   const beats = script.beats || [];
   const n = beats.length;
-  const theme = script.theme;
+  const theme = script.theme || themeFor(script.title);
+  const seed = script.seed != null ? (script.seed >>> 0) : seedOf(script.title);
   const pick = (say, i) => {
     const cap = shorten(say, 92);
     if (i === 0) return { tpl: 'opening', params: { title: script.title, subtitle: script.subtitle }, say, cap: '' };
@@ -69,8 +74,9 @@ function buildStoryboard(script) {
     if (/\b(forest|mountain|valley|desert|plain|countryside|wilderness|hills?|terrain|jungle|tundra|landscape|fields?)\b/i.test(say)) return { tpl: 'landscape', params: {}, say, cap };
     return { tpl: 'statement', params: {}, say, cap };
   };
-  // Every beat carries the video's theme so even generic scenes look on-subject (e.g. a space video stays in space).
-  return beats.map((say, i) => { const b = pick(say, i); b.params = { ...b.params, theme }; return b; });
+  // Every beat carries the video's theme + a per-video seed, so scenes look on-subject AND each
+  // video gets its own palette and scene variants (no two videos look like clones).
+  return beats.map((say, i) => { const b = pick(say, i); b.params = { ...b.params, theme, seed }; return b; });
 }
 
 // Normalise an AI-produced board; narration always comes from the script verbatim. Any invalid beat
@@ -80,7 +86,7 @@ function validateBoard(aiBoard, script) {
   if (!Array.isArray(aiBoard) || aiBoard.length !== script.beats.length) return fallback;
   return aiBoard.map((b, i) => {
     if (!b || !TEMPLATE_NAMES.includes(b.tpl)) return fallback[i];
-    return { tpl: b.tpl, params: { ...(b.params || {}), theme: script.theme }, say: script.beats[i], cap: typeof b.cap === 'string' ? b.cap : fallback[i].cap };
+    return { tpl: b.tpl, params: { ...(b.params || {}), theme: script.theme, seed: fallback[i].params.seed }, say: script.beats[i], cap: typeof b.cap === 'string' ? b.cap : fallback[i].cap };
   });
 }
 

@@ -6,6 +6,9 @@
 const H1 = 'Helvetica Neue, Helvetica, Arial', SER = 'Georgia, serif';
 // On-screen channel brand burned into the intro/outro and thumbnail. One place to change on a rename.
 const BRAND = (process.env.CHANNEL_BRAND || 'The Unknown Archive').toUpperCase();
+// Per-video colour grades: a subtle full-frame tint keyed to the video's seed, so each video has
+// its own signature mood and two videos never look like clones.
+const GRADES = ['#1b1206', '#06121f', '#04201d', '#160622', '#0a1a08', '#200810', '#07151f', '#1a1508'];
 const xml = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -26,7 +29,7 @@ function particles(tAbs) { let s = ''; for (let i = 0; i < 26; i++) { const bx =
 
 // Themed intro/outro backdrop so the opening/closing match the video's subject instead of
 // always showing the sea. Returns { svg, flashSvg, swell? }. 'sea' keeps the original look.
-function heroBackdrop(theme, tAbs) {
+function heroBackdrop(theme, tAbs, seed = 0) {
   if (theme === 'cosmic') {
     let stars = '';
     for (let i = 0; i < 64; i++) { const x = (i * 83 + 17) % 400, y = (i * 47 + 11) % 175; const tw = 0.3 + 0.7 * Math.abs(Math.sin(tAbs / 650 + i * 1.3)); stars += `<circle cx="${x}" cy="${y}" r="${0.4 + (i % 4) * 0.28}" fill="#e3ebff" opacity="${(0.2 + (i % 3) * 0.2) * tw}"/>`; }
@@ -41,20 +44,33 @@ function heroBackdrop(theme, tAbs) {
   if (theme === 'archive') {
     return { svg: `<defs><linearGradient id="asky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#101a33"/><stop offset=".55" stop-color="#2a2740"/><stop offset="1" stop-color="#4a3826"/></linearGradient></defs><rect width="400" height="225" fill="url(#asky)"/><g opacity=".5">${particles(tAbs)}</g><g stroke="#c9a86a" stroke-width="0.5" opacity=".13">${[40, 80, 120, 160].map(y => `<line x1="24" y1="${y}" x2="376" y2="${y}"/>`).join('')}</g><circle cx="200" cy="112" r="70" fill="none" stroke="#c9a86a" stroke-width="0.8" opacity=".12"/><circle cx="200" cy="112" r="50" fill="none" stroke="#c9a86a" stroke-width="0.6" opacity=".1"/>`, flashSvg: '' };
   }
-  return seaBackdrop(tAbs, true);
+  // 'sea' — only for genuine maritime topics; vary calm vs storm by seed
+  if (theme === 'sea') return (seed % 2) ? seaBackdrop(tAbs, true) : seaBackdrop(tAbs, false);
+  // 'neutral' (default for everything else) — an elegant backdrop, NO water; a few seeded variants
+  const grads = [['#171c30', '#1e2644', '#0a0d18', '#5f6fa8'], ['#1c1526', '#2a2038', '#0d0a14', '#8a6fa8'], ['#101e22', '#17303a', '#070f12', '#4a9fb0']][seed % 3];
+  const d = (tAbs / 1000) % 40;
+  return { svg: `<defs><linearGradient id="elg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${grads[0]}"/><stop offset=".55" stop-color="${grads[1]}"/><stop offset="1" stop-color="${grads[2]}"/></linearGradient><radialGradient id="elgl" cx="50%" cy="32%" r="56%"><stop offset="0" stop-color="${grads[3]}" stop-opacity=".32"/><stop offset="1" stop-color="${grads[3]}" stop-opacity="0"/></radialGradient></defs><rect width="400" height="225" fill="url(#elg)"/><ellipse cx="${200 - d}" cy="76" rx="235" ry="112" fill="url(#elgl)"/>${particles(tAbs)}`, flashSvg: '' };
 }
 const freighter = (x, y, sc, sw) => `<g transform="translate(${x},${y + sw}) scale(${sc})"><path d="M-46 0 q-4 7 4 7 l78 0 q10 0 8 -7 Z" fill="#12171f"/><rect x="-44" y="-5" width="70" height="5" fill="#1b2430"/><rect x="18" y="-16" width="12" height="11" fill="#223040"/><line x1="24" y1="-16" x2="24" y2="-24" stroke="#223040" stroke-width="1.5"/></g>`;
 
 const TEMPLATES = {
-  opening({ title, subtitle, theme }, c) { const bd = heroBackdrop(theme || 'sea', c.tAbs); const L = wrap(title, 24), by = 95 - (L.length - 1) * 12; return bd.svg + ((theme || 'sea') === 'sea' ? freighter(300, 150, .7, bd.swell || 0) : '') + `<rect width="400" height="225" fill="#05080d" opacity=".5"/><text x="200" y="64" text-anchor="middle" font-family="${H1}" font-weight="bold" font-size="7" letter-spacing="2.5" fill="#ffcf33">${BRAND}</text>${L.map((l, i) => `<text x="200" y="${by + i * 15}" text-anchor="middle" font-family="${SER}" font-size="15" fill="#f4efe6">${xml(l)}</text>`).join('')}${subtitle ? `<text x="200" y="${by + L.length * 15 + 6}" text-anchor="middle" font-family="${H1}" font-size="8" letter-spacing="3" fill="#9fb0c4">${xml(String(subtitle).toUpperCase())}</text>` : ''}` + bd.flashSvg; },
-  statement(p, c) { const th = p && p.theme; if (th === 'cosmic' || th === 'haunted' || th === 'archive') return heroBackdrop(th, c.tAbs).svg; return `<rect width="400" height="225" fill="url(#neu)"/>${particles(c.tAbs)}<rect width="400" height="225" fill="url(#vig)"/>`; },
-  cosmos(_p, c) {
+  opening({ title, subtitle, theme, seed }, c) { const bd = heroBackdrop(theme || 'neutral', c.tAbs, seed || 0); const L = wrap(title, 24), by = 95 - (L.length - 1) * 12; return bd.svg + `<rect width="400" height="225" fill="#05080d" opacity=".5"/><text x="200" y="64" text-anchor="middle" font-family="${H1}" font-weight="bold" font-size="7" letter-spacing="2.5" fill="#ffcf33">${BRAND}</text>${L.map((l, i) => `<text x="200" y="${by + i * 15}" text-anchor="middle" font-family="${SER}" font-size="15" fill="#f4efe6">${xml(l)}</text>`).join('')}${subtitle ? `<text x="200" y="${by + L.length * 15 + 6}" text-anchor="middle" font-family="${H1}" font-size="8" letter-spacing="3" fill="#9fb0c4">${xml(String(subtitle).toUpperCase())}</text>` : ''}` + bd.flashSvg; },
+  statement(p, c) { return heroBackdrop((p && p.theme) || 'neutral', c.tAbs, (p && p.seed) || 0).svg; },
+  cosmos(p, c) {
+    const seed = (p && p.seed) || 0;
     let stars = '';
-    for (let i = 0; i < 80; i++) { const x = (i * 71 + 13) % 400, y = (i * 53 + 7) % 225; const tw = 0.25 + 0.75 * Math.abs(Math.sin(c.tAbs / 600 + i * 1.7)); stars += `<circle cx="${x}" cy="${y}" r="${0.35 + (i % 4) * 0.3}" fill="#eaf0ff" opacity="${(0.2 + (i % 3) * 0.22) * tw}"/>`; }
+    for (let i = 0; i < 80; i++) { const x = (i * 71 + 13 + seed) % 400, y = (i * 53 + 7 + (seed >>> 2)) % 225; const tw = 0.25 + 0.75 * Math.abs(Math.sin(c.tAbs / 600 + i * 1.7)); stars += `<circle cx="${x}" cy="${y}" r="${0.35 + (i % 4) * 0.3}" fill="#eaf0ff" opacity="${(0.2 + (i % 3) * 0.22) * tw}"/>`; }
     const drift = (c.tAbs / 1000) % 60, rot = (c.tAbs / 1000 * 4) % 360;
-    return `<defs><radialGradient id="coB" cx="42%" cy="40%" r="75%"><stop offset="0" stop-color="#0b0c28"/><stop offset="1" stop-color="#03030c"/></radialGradient><radialGradient id="coN" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#4a3a86" stop-opacity=".6"/><stop offset=".6" stop-color="#2a2a66" stop-opacity=".25"/><stop offset="1" stop-color="#2a2a66" stop-opacity="0"/></radialGradient><radialGradient id="coP" cx="38%" cy="34%" r="70%"><stop offset="0" stop-color="#8fc0f0"/><stop offset=".55" stop-color="#3f74c0"/><stop offset="1" stop-color="#1d335f"/></radialGradient></defs>`
-      + `<rect width="400" height="225" fill="url(#coB)"/><ellipse cx="${210 - drift * 0.4}" cy="92" rx="250" ry="135" fill="url(#coN)"/>${stars}`
-      + `<g transform="translate(300,152)"><g transform="rotate(${rot.toFixed(2)})"><ellipse cx="0" cy="0" rx="54" ry="15" fill="none" stroke="#8778c0" stroke-width="1.4" opacity=".5"/></g><circle cx="0" cy="0" r="31" fill="url(#coP)"/><path d="M-31 0 a31 31 0 0 0 62 0 a31 20 0 0 1 -62 0" fill="#02040a" opacity=".32"/></g>`;
+    const planets = [['#8fc0f0', '#3f74c0', '#1d335f'], ['#f0c68f', '#c08a3f', '#5f3d1d'], ['#b89ff0', '#6a3fc0', '#331d5f'], ['#8ff0c8', '#3fc08a', '#1d5f48'], ['#f09fae', '#c03f5a', '#5f1d2c'], ['#d7d0e8', '#8a84b0', '#3a3658']];
+    const pc = planets[seed % planets.length];
+    const pos = [[300, 152], [108, 150], [316, 74], [292, 158]][(seed >>> 3) % 4];
+    const nebCol = ['#4a3a86', '#863a5a', '#2a6a86', '#86743a', '#3a865a'][(seed >>> 1) % 5];
+    const isGalaxy = (seed % 4 === 0);
+    const defs = `<defs><radialGradient id="coB" cx="42%" cy="40%" r="75%"><stop offset="0" stop-color="#0b0c28"/><stop offset="1" stop-color="#03030c"/></radialGradient><radialGradient id="coN" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="${nebCol}" stop-opacity=".55"/><stop offset=".6" stop-color="${nebCol}" stop-opacity=".2"/><stop offset="1" stop-color="${nebCol}" stop-opacity="0"/></radialGradient><radialGradient id="coP" cx="38%" cy="34%" r="70%"><stop offset="0" stop-color="${pc[0]}"/><stop offset=".55" stop-color="${pc[1]}"/><stop offset="1" stop-color="${pc[2]}"/></radialGradient></defs>`;
+    const focal = isGalaxy
+      ? `<g transform="translate(${pos[0]},${pos[1]})"><g transform="rotate(${rot.toFixed(2)})"><ellipse cx="0" cy="0" rx="48" ry="13" fill="none" stroke="${pc[0]}" stroke-width="2" opacity=".5"/><ellipse cx="0" cy="0" rx="34" ry="9" fill="none" stroke="${pc[0]}" stroke-width="1.3" opacity=".38" transform="rotate(38)"/><ellipse cx="0" cy="0" rx="34" ry="9" fill="none" stroke="${pc[0]}" stroke-width="1.3" opacity=".38" transform="rotate(-38)"/></g><circle cx="0" cy="0" r="9" fill="#fff" opacity=".9"/><circle cx="0" cy="0" r="20" fill="${pc[0]}" opacity=".22"/></g>`
+      : `<g transform="translate(${pos[0]},${pos[1]})"><g transform="rotate(${rot.toFixed(2)})"><ellipse cx="0" cy="0" rx="54" ry="15" fill="none" stroke="#8778c0" stroke-width="1.4" opacity=".5"/></g><circle cx="0" cy="0" r="31" fill="url(#coP)"/><path d="M-31 0 a31 31 0 0 0 62 0 a31 20 0 0 1 -62 0" fill="#02040a" opacity=".32"/></g>`;
+    return defs + `<rect width="400" height="225" fill="url(#coB)"/><ellipse cx="${210 - drift * 0.4}" cy="92" rx="250" ry="135" fill="url(#coN)"/>${stars}${focal}`;
   },
   map({ shape, pin, route, labels }, c) {
     let marker = ''; if (route) { const t = clamp(c.tIn / c.beatMs, 0, 1); marker = freighter(lerp(route[0][0], route[1][0], t), lerp(route[0][1], route[1][1], t), .42, 0); }
@@ -63,8 +79,8 @@ const TEMPLATES = {
     return `<rect width="400" height="225" fill="#0a1a28"/><path d="${shape}" fill="#123a52" stroke="#1f5d7d" stroke-width="1.5"/>${routeSvg}${pinSvg}${(labels || []).map(l => `<text x="${l[0]}" y="${l[1]}" font-family="${H1}" font-weight="bold" font-size="8.5" fill="#dce8f2">${xml(l[2])}</text>`).join('')}${marker}`;
   },
   seaScene({ storm }, c) { const bd = seaBackdrop(c.tAbs, storm); return bd.svg + freighter(200, 150, 1, bd.swell) + bd.flashSvg; },
-  stat({ number, label, theme }, c) { const pop = 1 + .04 * Math.max(0, Math.sin(2 * Math.PI * c.tIn / 1400)); const themed = (theme === 'cosmic' || theme === 'haunted' || theme === 'archive'); const bg = themed ? heroBackdrop(theme, c.tAbs).svg + `<ellipse cx="200" cy="120" rx="165" ry="54" fill="#05060f" opacity="0.4"/>` : `<rect width="400" height="225" fill="#0b0f16"/><rect width="400" height="225" fill="url(#vig)"/>`; return bg + `<text x="200" y="118" text-anchor="middle" font-family="${H1}" font-weight="bold" font-size="${50 * pop}" fill="#ffcf33">${xml(number)}</text><text x="200" y="150" text-anchor="middle" font-family="${H1}" font-weight="bold" font-size="11" letter-spacing="2.5" fill="#eef3fb">${xml(String(label).toUpperCase())}</text>`; },
-  closing({ title, note, theme }, c) { const bd = heroBackdrop(theme || 'sea', c.tAbs); const L = wrap(title, 26), by = 100 - (L.length - 1) * 11; return bd.svg + `<rect width="400" height="225" fill="#05080d" opacity=".62"/><text x="200" y="70" text-anchor="middle" font-family="${H1}" font-weight="bold" font-size="7" letter-spacing="2.5" fill="#ffcf33">${BRAND}</text>${L.map((l, i) => `<text x="200" y="${by + i * 13}" text-anchor="middle" font-family="${SER}" font-size="13" fill="#eef3fb">${xml(l)}</text>`).join('')}${note ? `<text x="200" y="150" text-anchor="middle" font-family="${H1}" font-size="7.5" fill="#93a0b4">${xml(note)}</text>` : ''}`; },
+  stat({ number, label, theme, seed }, c) { const pop = 1 + .04 * Math.max(0, Math.sin(2 * Math.PI * c.tIn / 1400)); const bg = heroBackdrop(theme || 'neutral', c.tAbs, seed || 0).svg + `<ellipse cx="200" cy="120" rx="165" ry="54" fill="#05060f" opacity="0.42"/>`; return bg + `<text x="200" y="118" text-anchor="middle" font-family="${H1}" font-weight="bold" font-size="${50 * pop}" fill="#ffcf33">${xml(number)}</text><text x="200" y="150" text-anchor="middle" font-family="${H1}" font-weight="bold" font-size="11" letter-spacing="2.5" fill="#eef3fb">${xml(String(label).toUpperCase())}</text>`; },
+  closing({ title, note, theme, seed }, c) { const bd = heroBackdrop(theme || 'neutral', c.tAbs, seed || 0); const L = wrap(title, 26), by = 100 - (L.length - 1) * 11; return bd.svg + `<rect width="400" height="225" fill="#05080d" opacity=".62"/><text x="200" y="70" text-anchor="middle" font-family="${H1}" font-weight="bold" font-size="7" letter-spacing="2.5" fill="#ffcf33">${BRAND}</text>${L.map((l, i) => `<text x="200" y="${by + i * 13}" text-anchor="middle" font-family="${SER}" font-size="13" fill="#eef3fb">${xml(l)}</text>`).join('')}${note ? `<text x="200" y="150" text-anchor="middle" font-family="${H1}" font-size="7.5" fill="#93a0b4">${xml(note)}</text>` : ''}`; },
   portrait({ name, role }, c) {
     const glow = 0.5 + 0.5 * Math.sin(c.tAbs / 1600);
     return `<rect width="400" height="225" fill="url(#neu)"/>${particles(c.tAbs)}`
@@ -154,8 +170,8 @@ function cameraFor(beat, tIn, beatMs) {
   const p = clamp(beatMs ? tIn / beatMs : 0, 0, 1);
   const seed = hashStr((beat.cap || '') + beat.tpl);
   const z = (seed % 2) ? 1.03 + 0.13 * p : 1.16 - 0.13 * p; // in [1.03, 1.16]
-  const panX = (((seed >> 1) % 3) - 1) * 10 * (p - 0.5);    // |drift| <= 5 < overscan (6)
-  const panY = (((seed >> 3) % 3) - 1) * 5 * (p - 0.5);     // |drift| <= 2.5 < overscan (3.3)
+  const panX = (((seed >>> 1) % 3) - 1) * 10 * (p - 0.5);    // |drift| <= 5 < overscan (6)
+  const panY = (((seed >>> 3) % 3) - 1) * 5 * (p - 0.5);     // |drift| <= 2.5 < overscan (3.3)
   const cx = 200, cy = 112;
   return `translate(${(cx * (1 - z) + panX).toFixed(3)},${(cy * (1 - z) + panY).toFixed(3)}) scale(${z.toFixed(4)})`;
 }
@@ -166,10 +182,11 @@ function frameSVG(beat, tInMs, tAbsMs, beatMs) {
   const storm = (beat.params && beat.params.storm) || beat.tpl === 'opening' || beat.tpl === 'closing';
   const body = TEMPLATES[beat.tpl](beat.params || {}, { tAbs: tAbsMs, tIn: tInMs, beatMs, W: 1280, H: 720 });
   const cam = cameraFor(beat, tInMs, beatMs);
+  const grade = GRADES[((beat.params && beat.params.seed) || 0) % GRADES.length];
   const fade = clamp(1 - tInMs / 350, 0, 1);
   let cap = '';
   if (beat.cap) { const L = wrap(beat.cap, 48), lh = 15, by = 214 - (L.length - 1) * lh; cap = `<rect x="0" y="182" width="400" height="43" fill="url(#capband)"/>` + L.map((l, i) => `<text x="200" y="${by + i * lh}" text-anchor="middle" font-family="${H1}" font-style="italic" font-weight="bold" font-size="12.5" fill="#ffe14d">${xml(l)}</text>`).join(''); }
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 400 225">${defs(storm)}<g transform="${cam}">${body}</g><rect width="400" height="225" fill="url(#gvig)"/>${cap}<rect width="400" height="225" fill="#05080d" opacity="${fade}"/></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 400 225">${defs(storm)}<g transform="${cam}">${body}</g><rect width="400" height="225" fill="${grade}" opacity="0.1"/><rect width="400" height="225" fill="url(#gvig)"/>${cap}<rect width="400" height="225" fill="#05080d" opacity="${fade}"/></svg>`;
 }
 
 module.exports = { TEMPLATES, TEMPLATE_NAMES, frameSVG, defs, wrap, BRAND };
