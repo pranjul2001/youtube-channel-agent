@@ -4222,20 +4222,25 @@ class SystemTest {
 
   async testTopicCurator() {
     const { TopicCurator } = require('./utils/topic-curator');
-    const signals = [{ signal: 'SS United States' }, { signal: 'Lara Stone' }];
+    const signals = [{ signal: 'SS United States' }, { signal: 'Lara Stone' }, { signal: 'Deep Sea' }];
     const out = TopicCurator.sanitize([
-      { topic: 'The Rise and Demise of the SS United States', why: 'w', angle: 'a', tag: 'True stories', wikipedia: 'SS United States', trend: 'SS United States' },
-      { topic: 'The Physics and History of Glassmaking', why: 'w', angle: 'a', tag: 'True stories', wikipedia: 'Glass', trend: 'Lara Stone' },
-      { topic: 'Which stocks to buy now for quick profit', why: 'w', angle: 'a', tag: 'Money explained', wikipedia: 'Stock', trend: '' },
-      { topic: 'The serial killer who was never caught', why: 'w', angle: 'a', tag: 'Mysteries', wikipedia: 'Zodiac Killer', trend: '' },
+      { topic: 'The Rise and Demise of the SS United States', why: 'w', angle: 'a', tag: 'History & Events', wikipedia: 'SS United States', trend: 'SS United States' },
+      { topic: 'The Physics and History of Glassmaking', why: 'w', angle: 'a', tag: 'History & Events', wikipedia: 'Glass', trend: 'Lara Stone' },
+      { topic: 'The Strange Creatures of the Deep Sea', why: 'w', angle: 'a', tag: 'Wildcard', wikipedia: 'Deep sea', trend: 'Deep Sea' },
+      { topic: 'Which stocks to buy now for quick profit', why: 'w', angle: 'a', tag: 'The Universe', wikipedia: 'Stock', trend: '' },
+      { topic: 'The serial killer who was never caught', why: 'w', angle: 'a', tag: 'Unsolved Mysteries', wikipedia: 'Zodiac Killer', trend: '' },
       { topic: 'How Octopuses Think and Solve Problems', why: 'w', angle: 'a', tag: 'Nature', wikipedia: 'Octopus', trend: '' },
-      { topic: 'Duplicate of the liner story', why: 'w', angle: 'a', tag: 'True stories', wikipedia: 'SS United States', trend: '' }
+      { topic: 'Duplicate of the liner story', why: 'w', angle: 'a', tag: 'History & Events', wikipedia: 'SS United States', trend: '' }
     ], { signals });
-    if (out.length !== 3) throw new Error(`Advice, crime and duplicate topics must be dropped; got ${out.map(o => o.topic).join(' | ')}`);
-    if (out[0].topic.indexOf('SS United States') < 0 || !out[0].trending || out[0].rank !== 1) throw new Error('A real trend must rank first and be marked trending');
+    if (out.length !== 4) throw new Error(`Advice, crime and duplicate topics must be dropped; got ${out.map(o => o.topic).join(' | ')}`);
+    if (out[0].topic.indexOf('SS United States') < 0 || !out[0].trending || out[0].rank !== 1) throw new Error('A niche topic riding a real trend must rank first and be marked trending');
     const glass = out.find(o => /Glassmaking/.test(o.topic));
     if (glass.trending || !/^Evergreen pick/.test(glass.why)) throw new Error('A trend unrelated to the topic must not be shown as trending');
-    if (out.find(o => /Octopus/.test(o.topic)).tag !== 'Wildcard') throw new Error('Topics outside the three series must be tagged Wildcard');
+    if (out.find(o => /Octopus/.test(o.topic)).tag !== 'Wildcard') throw new Error('Topics outside the series must be tagged Wildcard');
+    // A niche (series) topic with no trend must still outrank a merely-trending Wildcard.
+    const glassRank = out.findIndex(o => /Glassmaking/.test(o.topic));
+    const deepRank = out.findIndex(o => /Deep Sea/.test(o.topic));
+    if (glassRank < 0 || deepRank < 0 || glassRank > deepRank) throw new Error('A compelling niche topic must rank above a merely-trending Wildcard');
 
     // Articles are verified; a mismatched one is replaced by search or the topic is dropped.
     const curator = new TopicCurator({

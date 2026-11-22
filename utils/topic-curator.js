@@ -1,14 +1,15 @@
 // Weekly topic shortlist. Gathers free trend signals (Google Trends, Wikipedia's most-read
 // pages, YouTube most-popular when signed in), then asks the AI to turn them into a wide list
-// of documentary topics. Each topic is tagged with one of the channel's series or "Wildcard",
+// of curiosity-driven video topics in the channel's niches. Each topic is tagged with one of
+// the channel's series or "Wildcard", and niche topics outrank wildcards when the list is sorted;
 // and anything that breaks the channel bible is dropped in code, not just in the prompt.
 const axios = require('axios');
 const { progress } = require('./progress-tracker');
 const { Logger } = require('./logger');
 const { generateTextWithRetry } = require('./ai-retry');
 
-const USER_AGENT = 'CuriousFilesTopicCurator/1.0 (local tool)';
-const SERIES = ['Mysteries', 'Money explained', 'True stories'];
+const USER_AGENT = 'UnknownArchiveTopicCurator/1.0 (local tool)';
+const SERIES = ['History & Events', 'The Universe', 'Haunted Places', 'Unsolved Mysteries'];
 const WILDCARD = 'Wildcard';
 
 // Channel bible, enforced on every candidate: no gore, no medical or financial advice, no
@@ -106,8 +107,9 @@ class TopicCurator {
       const grounded = inSignals && shareWord(trend, `${topic} ${wikipedia}`);
       out.push({ topic, angle, why: grounded ? why : `Evergreen pick. ${why}`.trim(), tag, wikipedia, trending: Boolean(grounded) });
     }
-    // Trending first, then series topics before wildcards; keep the AI's order within a group.
-    const score = t => (t.trending ? 2 : 0) + (t.tag !== WILDCARD ? 1 : 0);
+    // Niche (series) topics rank above wildcards; a real trend is a tie-breaker boost on top.
+    // This favours the channel's compelling niches over whatever merely happens to be trending.
+    const score = t => (t.tag !== WILDCARD ? 2 : 0) + (t.trending ? 1 : 0);
     return out.map((t, i) => ({ ...t, i })).sort((a, b) => score(b) - score(a) || a.i - b.i).slice(0, limit)
       .map(({ i, ...t }, rank) => ({ ...t, rank: rank + 1 }));
   }
@@ -120,17 +122,24 @@ class TopicCurator {
     const recentRows = this.db?.getAllRows
       ? await this.db.getAllRows("SELECT topic FROM content_ideas WHERE status IN ('generated','generating','picked') ORDER BY created_at DESC LIMIT 60").catch(() => [])
       : [];
-    const prompt = `You plan topics for "Curious Files", a calm, factual documentary YouTube channel (7-9 minute videos, real footage, maps, archive images).
-Series: "Mysteries" (unexplained events, space and the universe, open questions of history and science), "Money explained" (how money, economies and famous financial events work: explanation only, never advice), "True stories" (real survival, exploration, engineering and historical events).
+    const prompt = `You plan video topics for "The Unknown Archive", a YouTube channel of fascinating true stories about our world, told as animated explainers (10-12 minute videos; every scene is illustrated to match the narration).
+The channel's whole promise is CURIOSITY: topics people cannot scroll past. A great topic makes a stranger think "wait, I NEED to know how that ends." Favour the untold or surprising story behind something famous; genuine mysteries and unanswered questions; "what really happened" and "how it all began"; awe-inspiring scale (space, deep time, lost empires); and eerie real places and the legends around them.
+The channel's series (niches):
+- "History & Events": pivotal events and eras told as stories — famous ships and disasters (the Titanic), empires rising and falling (the Mughals), colonisation, the origin of a country, great expeditions and feats of engineering.
+- "The Universe": the origin and scale of the cosmos, black holes, the search for alien life, big scientific theories — explained with wonder.
+- "Haunted Places": famously eerie or forbidden places around the world (like Bhangarh Fort) and the legend and history behind them — told through folklore and record, never gore.
+- "Unsolved Mysteries": unexplained events, lost ships and expeditions, disappearances, open questions of history and science.
+Plus "Wildcard" for any other irresistibly interesting subject: a mind-bending fact, how something extraordinary works, an astonishing corner of nature.
 Below are things people are searching and reading about right now. Propose ${limit + 6} video topics.
 Rules:
-- Each topic must be an evergreen documentary subject that will still be interesting in six months. Use a trend as the DOOR to a lasting subject (a film about a ship -> the real ship's story; a storm in the news -> how hurricanes get their names). Skip breaking news, sports results, celebrities' private lives, politics and elections.
-- Never: gore, crime against identifiable victims, children, medical or financial advice, sexual content.
-- The topic must be genuinely ABOUT the trend's own subject (the real person, ship, place, company, event, object or idea behind it), not a loose association. If a trend has no documentary subject, skip it.
-- "wikipedia": the exact title of the English Wikipedia article about the TOPIC's subject (the thing the video explains), with plenty of facts. It is often, but not always, the trend itself.
-- "trend": copy the exact trend text from the list that inspired the topic, or "" for an evergreen idea of your own (at most a third of the list).
-- "tag": "Mysteries", "Money explained" or "True stories" ONLY when it truly fits; otherwise "Wildcard" (science, technology, nature, culture, arts, how things work...). Do not force topics into a series; a good list has several Wildcards.
-- "topic": an honest video title under 90 characters, no clickbait. "angle": one sentence on what the video explains. "why": one sentence on why viewers care now.
+- Topics must be EVERGREEN (still fascinating in six months) and deeply researchable. MOST of your list should be timeless niche topics from the series above. You MAY use a current trend as a DOOR to a lasting subject (a film about a ship -> the real ship's story), but you do NOT need a trend — a brilliant evergreen idea of your own is just as welcome.
+- Every topic needs a real, substantial English Wikipedia article about its own subject, full of facts.
+- Keep titles honest and specific: curiosity, not clickbait. "The Untold Story of..." style is fine when true. No ALL CAPS, no "you won't believe", no fake hype, no invented claims.
+- Never: gore, crime against identifiable real victims, children, medical or financial advice, sexual content, politics and elections.
+- "wikipedia": the exact title of the English Wikipedia article about the TOPIC's subject (the thing the video explains). Often, but not always, the trend itself.
+- "trend": copy the exact trend text from the list that inspired the topic, or "" for an evergreen idea of your own.
+- "tag": "History & Events", "The Universe", "Haunted Places" or "Unsolved Mysteries" when it truly fits; otherwise "Wildcard". Do not force a fit.
+- "topic": an honest, curiosity-driven video title under 90 characters. "angle": one sentence on what the video reveals. "why": one sentence on why it is irresistible to watch.
 Recently made (do not repeat): ${recentRows.map(r => r.topic).slice(0, 30).join('; ') || 'none'}
 Return ONLY a JSON array of objects {"topic","angle","why","tag","wikipedia","trend"}.
 
