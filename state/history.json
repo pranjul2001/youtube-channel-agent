@@ -1,3 +1,12 @@
 {
-  "videos": []
+  "videos": [
+    {
+      "date": "2026-11-22",
+      "topic": "The Deep Time Origins of Our Solar System",
+      "wikipedia": "Formation and evolution of the Solar System",
+      "title": "Origins of the Solar System: How a Collapsing Nebula Forged Earth",
+      "youtubeId": "DSdVHWr8KyQ",
+      "privacy": "private"
+    }
+  ]
 }
